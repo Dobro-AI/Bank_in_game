@@ -10,7 +10,8 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
   const status = useLoad(() => api<Status>(`/api/admin/games/${ctx.id}/sheet`), [ctx.id, ctx.tick]);
   const [link, setLink] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
+  // A failed Google sign-in returns here with ?google_error=…
+  const [error, setError] = useState<string | undefined>(() => new URLSearchParams(location.search).get('google_error') ?? undefined);
   const s = status.data;
   useEffect(() => { if (s && !link) setLink(s.sheetId ? `https://docs.google.com/spreadsheets/d/${s.sheetId}/edit` : ''); }, [s?.sheetId]);
 

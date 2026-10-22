@@ -49,6 +49,11 @@ async function getSetting(db: Db, key: string) {
   return (r?.value as string) ?? '';
 }
 
+/** Where to send the browser back after Google, known before the state is consumed. */
+export function returnTo(state: string) {
+  return pending.get(state)?.returnTo ?? '/admin';
+}
+
 export async function finishAuth(db: Db, code: string, state: string) {
   const p = pending.get(state);
   pending.delete(state);

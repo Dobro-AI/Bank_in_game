@@ -622,12 +622,20 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     return reply.redirect(googleUser.authUrl(callbackUrl(req), back.startsWith('/admin') ? back : '/admin'));
   });
 
+  // Errors come back to the cabinet as ?google_error=… so the host sees why sign-in failed.
   app.get('/api/admin/google/callback', async (req, reply) => {
-    await needSuper(req);
     const q = req.query as any;
-    if (q.error) return reply.redirect(`/admin?google=${encodeURIComponent(String(q.error))}`);
-    const back = await googleUser.finishAuth(db, String(q.code ?? ''), String(q.state ?? ''));
-    return reply.redirect(back);
+    const back = googleUser.returnTo(String(q.state ?? ''));
+    const fail = (msg: string) => reply.redirect(`${back}?google_error=${encodeURIComponent(msg)}`);
+    try {
+      await needSuper(req);
+      if (q.error) return fail(q.error === 'access_denied' ? 'Доступ не разрешён в Google' : `Google: ${q.error}`);
+      await googleUser.finishAuth(db, String(q.code ?? ''), String(q.state ?? ''));
+      return reply.redirect(back);
+    } catch (e: any) {
+      console.error('google callback', e?.response?.data ?? e?.message ?? e);
+      return fail(e instanceof AppError ? (e.status === 401 ? 'Войдите в кабинет как Супер-ведущий и повторите вход через Google' : e.message) : 'Не удалось завершить вход через Google');
+    }
   });
 
   app.post('/api/admin/google/disconnect', async (req) => {
