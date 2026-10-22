@@ -1,0 +1,188 @@
+/* Player bank: light neutral surfaces, one yellow accent for the main action. */
+.bank {
+  --bg: #f5f5f5;
+  --surface: #ffffff;
+  --text: #0a0a0a;
+  --muted: #6b7280;
+  --line: #ececec;
+  --accent: #0a0a0a;
+  --accent-soft: #f3f4f6;
+  --cta: #ffdd2d;
+  --cta-hover: #fcd116;
+  --in: #15803d;
+  --nav-h: 64px;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+}
+.bank a { color: inherit; }
+
+.bank .btn.primary { background: var(--cta); border-color: var(--cta); color: var(--text); }
+.bank .btn.primary:hover { background: var(--cta-hover); border-color: var(--cta-hover); }
+.bank .btn { border-radius: 12px; }
+.bank .btn.link { color: var(--text); }
+.bank .chip-toggle[aria-pressed='true'] { background: var(--text); border-color: var(--text); color: #fff; }
+.bank .chip.accent { background: #f3f4f6; color: var(--text); }
+.bank input, .bank select, .bank textarea { border-color: #e5e7eb; border-radius: 12px; }
+
+/* ---------- Shell: bottom tab bar on phones, left sidebar on desktop ---------- */
+
+.bank-main { max-width: 640px; margin: 0 auto; padding: 16px 16px calc(var(--nav-h) + 32px + env(safe-area-inset-bottom)); }
+
+.bank-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; background: var(--surface); border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.bank-brand { display: none; }
+.bank .bank-nav-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  height: var(--nav-h); font-size: 12px; font-weight: 500; color: var(--muted); text-decoration: none;
+}
+.bank .bank-nav-item.active { color: var(--text); }
+.bank-nav-item:focus-visible { outline: 2px solid var(--text); outline-offset: -4px; border-radius: 12px; }
+
+@media (min-width: 900px) {
+  .bank-shell { display: grid; grid-template-columns: 248px 1fr; }
+  .bank-nav {
+    position: sticky; top: 0; height: 100dvh; flex-direction: column; gap: 4px;
+    padding: 24px 12px; border-top: none; border-right: 1px solid var(--line);
+  }
+  .bank-brand { display: block; padding: 0 12px 24px; }
+  .bank-brand-title { font-weight: 700; font-size: 16px; }
+  .bank-brand-sub { font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .bank .bank-nav-item { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; height: 48px; padding: 0 12px; border-radius: 12px; font-size: 16px; }
+  .bank .bank-nav-item.active { background: var(--bg); }
+  .bank .bank-nav-item:hover { background: var(--bg); }
+  .bank-main { padding: 32px 24px 64px; width: 100%; }
+}
+
+/* ---------- Common blocks ---------- */
+
+.screen-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; min-height: 44px; }
+.screen-header h1 { margin: 0; font-size: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: none; background: none; color: var(--text);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; margin-left: -10px; flex-shrink: 0;
+}
+.icon-btn:hover { background: #ebebeb; }
+.section-title { font-size: 20px; margin: 0 0 12px; }
+.day-title { font-size: 14px; font-weight: 600; color: var(--muted); margin: 24px 0 8px; text-transform: none; }
+.text-link { font-weight: 600; text-decoration: none; font-size: 14px; padding: 12px 0; }
+.bank .empty { padding: 32px 16px; }
+
+.avatar {
+  width: 40px; height: 40px; border-radius: 50%; background: #f3f4f6; color: var(--text);
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex-shrink: 0;
+}
+.avatar.large { width: 56px; height: 56px; font-size: 20px; }
+.avatar.accent { background: var(--cta); }
+
+/* ---------- Home ---------- */
+
+.home-head { padding: 8px 0 16px; }
+.home-total { font-size: 32px; font-weight: 700; line-height: 1.2; }
+.home-total .money { font-weight: 700; }
+.quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+.quick {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 4px;
+  background: var(--surface); border-radius: 16px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px;
+}
+.quick.inline { flex-direction: row; display: inline-flex; padding: 8px 16px 8px 8px; margin-top: 16px; }
+.quick-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--cta); display: inline-flex; align-items: center; justify-content: center; }
+.card-list { display: flex; flex-direction: column; gap: 8px; }
+.account-card {
+  display: flex; align-items: center; gap: 12px; padding: 16px; background: var(--surface);
+  border-radius: 16px; text-decoration: none; min-height: 72px;
+}
+.account-card:hover { background: #fcfcfc; }
+.account-card .grow { display: flex; flex-direction: column; min-width: 0; }
+.account-card-balance { font-size: 18px; }
+.account-card-title { font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Operations ---------- */
+
+.op-list, .settings-group { background: var(--surface); border-radius: 16px; overflow: hidden; }
+.op-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; min-height: 64px; text-decoration: none; }
+.op-row + .op-row { border-top: 1px solid var(--line); }
+.link-row:hover { background: #fcfcfc; }
+.op-text { display: flex; flex-direction: column; min-width: 0; }
+.op-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-sub { font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-amount { flex-shrink: 0; }
+.op-amount.in .money { color: var(--in); }
+
+.chip-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; scrollbar-width: none; }
+.chip-scroll::-webkit-scrollbar { display: none; }
+.chip-scroll .chip-toggle { flex-shrink: 0; white-space: nowrap; }
+.segmented { display: grid; grid-template-columns: repeat(3, 1fr); background: #ebebeb; border-radius: 12px; padding: 4px; gap: 4px; }
+.segmented button {
+  min-height: 40px; border: none; border-radius: 8px; background: none; font: inherit; font-size: 14px; font-weight: 500; color: var(--muted); cursor: pointer;
+}
+.segmented button[aria-pressed='true'] { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); }
+.history-totals { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.history-totals > div { background: var(--surface); border-radius: 16px; padding: 12px 16px; display: flex; flex-direction: column; }
+
+/* ---------- Transfer ---------- */
+
+.search { display: flex; align-items: center; gap: 8px; background: var(--surface); border-radius: 12px; padding: 0 12px; color: var(--muted); }
+.bank .search input { border: none; padding: 8px 0; background: none; }
+.bank .search input:focus-visible { outline: none; }
+.search:focus-within { outline: 2px solid var(--text); outline-offset: 2px; }
+
+.amount-form { display: flex; flex-direction: column; gap: 16px; }
+.carousel-wrap { margin: 0 -16px; }
+.carousel {
+  display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 16px;
+  scrollbar-width: none;
+}
+.carousel::-webkit-scrollbar { display: none; }
+.source-card {
+  flex: 0 0 85%; scroll-snap-align: center; display: flex; flex-direction: column; gap: 4px; text-align: left;
+  padding: 16px; background: var(--surface); border-radius: 16px; border: 2px solid transparent; font: inherit; color: inherit; cursor: pointer;
+}
+.source-card.active { border-color: var(--text); }
+.source-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-balance { font-size: 20px; }
+.dots { display: flex; justify-content: center; gap: 6px; margin-top: 8px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #d1d5db; }
+.dot.active { background: var(--text); }
+
+.amount-field { display: flex; flex-direction: column; gap: 4px; background: var(--surface); border-radius: 16px; padding: 16px; }
+.bank .amount-field input {
+  border: none; padding: 0; min-height: 48px; font-size: 32px; font-weight: 700; background: none; border-radius: 0;
+}
+.bank .amount-field input:focus-visible { outline: none; }
+.amount-field:focus-within { outline: 2px solid var(--text); outline-offset: 2px; }
+.preset-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.stepper { display: inline-flex; align-items: center; gap: 4px; background: var(--surface); border-radius: 999px; padding: 2px; border: 1px solid #e5e7eb; }
+.stepper button {
+  width: 44px; height: 44px; border-radius: 50%; border: none; background: none; font-size: 20px; cursor: pointer; color: var(--text);
+}
+.stepper button:disabled { color: #d1d5db; cursor: default; }
+.stepper span { min-width: 56px; text-align: center; font-weight: 600; }
+.sticky-action { position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px); padding-top: 8px; }
+@media (min-width: 900px) { .sticky-action { bottom: 16px; } }
+
+.success { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding-top: 48px; }
+.success-icon { width: 64px; height: 64px; border-radius: 50%; background: var(--cta); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px; }
+
+/* ---------- Account, settings ---------- */
+
+.account-hero { padding: 0 0 16px; }
+.sheet { background: var(--surface); border-radius: 16px; padding: 16px; }
+.profile { display: flex; align-items: center; gap: 12px; background: var(--surface); border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+.settings-group { margin-bottom: 16px; }
+.settings-row {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px; min-height: 56px; width: 100%;
+  background: none; border: none; font: inherit; color: inherit; text-align: left; text-decoration: none; cursor: pointer;
+}
+.settings-row + .settings-row { border-top: 1px solid var(--line); }
+a.settings-row:hover, button.settings-row:hover { background: #fcfcfc; }
+.settings-row svg { color: var(--muted); flex-shrink: 0; }
+.settings-row .grow { display: flex; flex-direction: column; min-width: 0; }
+.settings-title { font-weight: 500; }
+.settings-sub { font-size: 14px; color: var(--muted); }
+.danger-text { color: #b91c1c; }
+/* Outgoing operations are plain text; red stays for negative balances only. */
+.op-amount .money.negative { color: var(--text); }

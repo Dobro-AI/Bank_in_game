@@ -143,15 +143,18 @@ export async function playerTransfer(
 export async function payFixedPrice(
   db: Db,
   p: PlayerCtx,
-  body: { fromAccountId: number; priceItemId: number; comment?: string; idempotencyKey?: string },
+  body: { fromAccountId: number; priceItemId: number; quantity?: unknown; comment?: string; idempotencyKey?: string },
 ) {
+  const quantity = body.quantity == null ? 1 : Number(body.quantity);
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) throw new AppError('Количество — от 1 до 1000');
   const [item] = await db.query(
     'select id, title, price from price_item where id = $1 and game_id = $2 and active',
     [body.priceItemId, p.gameId],
   );
   if (!item) throw new AppError('Позиция прайса не найдена', 404);
   const hostId = await hostAccountId(db, p.gameId);
-  const comment = [item.title, (body.comment ?? '').trim()].filter(Boolean).join(' — ');
+  const what = quantity > 1 ? `${item.title} × ${quantity}` : item.title;
+  const comment = [what, (body.comment ?? '').trim()].filter(Boolean).join(' — ');
   return transfer(
     db,
     {
@@ -159,7 +162,7 @@ export async function payFixedPrice(
       kind: 'fixed_price',
       fromAccountId: body.fromAccountId,
       toAccountId: hostId,
-      amount: item.price,
+      amount: item.price * quantity,
       priceItemId: item.id,
       comment,
       initiatorPlayerId: p.playerId,

@@ -153,6 +153,18 @@ describe('переводы', () => {
   });
 });
 
+describe('прайс', () => {
+  it('оплата нескольких штук: сумма = цена × количество', async () => {
+    const mayor = await join('Мэр');
+    const acc = (await accountOf(mayor.roleId, 'individual')).id;
+    const [price] = await db.query('select id from price_item where game_id = $1', [branchId]);
+    const { transfer: t } = await payFixedPrice(db, mayor, { fromAccountId: acc, priceItemId: price.id, quantity: 3 });
+    expect(t.amount).toBe(900);
+    expect(t.comment).toBe('Штраф × 3');
+    await expect(payFixedPrice(db, mayor, { fromAccountId: acc, priceItemId: price.id, quantity: 0 })).rejects.toThrow('Количество');
+  });
+});
+
 describe('юрлица', () => {
   it('создание, передача владельцу и потеря доступа', async () => {
     const mayor = await join('Мэр');

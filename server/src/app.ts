@@ -227,6 +227,12 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     return reports.listTransfers(db, p.gameId, { accountId: id });
   });
 
+  /** All operations on the player's accounts, newest first (the "История" tab). */
+  app.get('/api/player/history', async (req) => {
+    const p = await needPlayer(req);
+    return reports.listTransfers(db, p.gameId, { roleId: p.roleId });
+  });
+
   /** Recipients: game master first, then legal entities, then individuals. */
   app.get('/api/player/recipients', async (req) => {
     const p = await needPlayer(req);
@@ -274,7 +280,8 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     const p = await needPlayer(req);
     const b = req.body as any;
     const res = await payFixedPrice(db, p, {
-      fromAccountId: Number(b.fromAccountId), priceItemId: Number(b.priceItemId), comment: b.comment, idempotencyKey: b.idempotencyKey,
+      fromAccountId: Number(b.fromAccountId), priceItemId: Number(b.priceItemId), quantity: b.quantity,
+      comment: b.comment, idempotencyKey: b.idempotencyKey,
     });
     changed(p.gameId);
     return res;
