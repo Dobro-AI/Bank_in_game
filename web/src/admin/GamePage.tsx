@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, newKey, useLive, useLoad } from '../api';
 import { Confirm, Empty, ErrorText, Field, Money, Tabs } from '../ui';
 import type { Staff } from './AdminApp';
+import { Assistant } from './Assistant';
 import { Config } from './Config';
 
 export interface GameData {
@@ -10,7 +11,7 @@ export interface GameData {
   can: { config: boolean; run: boolean; super: boolean };
 }
 
-type Tab = 'summary' | 'transfers' | 'people' | 'adjust' | 'tacts' | 'config' | 'staff' | 'branches';
+type Tab = 'summary' | 'transfers' | 'people' | 'adjust' | 'tacts' | 'config' | 'staff' | 'branches' | 'assistant';
 
 export function GamePage({ staff }: { staff: Staff }) {
   const id = Number(useParams().id);
@@ -25,9 +26,10 @@ export function GamePage({ staff }: { staff: Staff }) {
   if (!d) return <ErrorText error={data.error} />;
   const isRoot = d.game.kind === 'root';
   const tabs: [Tab, string][] = isRoot
-    ? [['config', 'Настройки'], ['branches', 'Ответвления']]
+    ? [['config', 'Настройки'], ['branches', 'Ответвления'], ['assistant', 'Помощник']]
     : [['summary', 'Сводка'], ['transfers', 'Переводы'], ['people', 'Участники'],
-      ...(d.can.run ? [['adjust', 'Начисления'] as [Tab, string]] : []), ['tacts', 'Такты'], ['config', 'Настройки'], ['staff', 'Ведущие']];
+      ...(d.can.run ? [['adjust', 'Начисления'] as [Tab, string]] : []), ['tacts', 'Такты'], ['assistant', 'Помощник'],
+      ['config', 'Настройки'], ['staff', 'Ведущие']];
   const current = tab && tabs.some(([k]) => k === tab) ? tab : tabs[0][0];
   const ctx = { id, d, accounts: accounts.data ?? [], tacts: tacts.data ?? [], tick, reload: () => { data.reload(); accounts.reload(); tacts.reload(); } };
 
@@ -53,6 +55,7 @@ export function GamePage({ staff }: { staff: Staff }) {
       {current === 'config' && <Config ctx={ctx} />}
       {current === 'staff' && <StaffTab ctx={ctx} staff={staff} />}
       {current === 'branches' && <Branches ctx={ctx} />}
+      {current === 'assistant' && <Assistant ctx={ctx} />}
     </>
   );
 }

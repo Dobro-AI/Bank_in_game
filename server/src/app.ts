@@ -1,20 +1,32 @@
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import Anthropic from '@anthropic-ai/sdk';
 import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
+import * as assistant from './assistant.js';
 import { AppError, Db } from './db.js';
 import * as games from './games.js';
 import * as reports from './reports.js';
 import { AttemptLimiter, hashSecret, newToken, tokenHash, verifySecret } from './security.js';
+import { transcribe, transcriptionEnabled } from './transcribe.js';
 import { hostAdjust, payFixedPrice, playerTransfer } from './transfers.js';
 
 const STAFF_COOKIE = 'sid';
 const PLAYER_COOKIE = 'psid';
 
-export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boolean } = {}) {
-  const app = Fastify({ logger: false });
+export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boolean; claude?: assistant.ClaudeClient } = {}) {
+  // Photos for the assistant and voice files arrive base64-encoded in JSON.
+  const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
+  let claude = opts.claude;
+  const claudeClient = () => {
+    // Fail before the user's message is stored, with a message the host can act on.
+    if (!claude && !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
+      throw new AppError('Помощник не настроен: задайте ANTHROPIC_API_KEY на сервере', 503);
+    }
+    return (claude ??= new Anthropic());
+  };
   app.register(cookie);
   const bus = new EventEmitter().setMaxListeners(0);
   const changed = (gameId: number) => bus.emit(`game:${gameId}`);
@@ -23,6 +35,14 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
 
   app.setErrorHandler((err: any, _req, reply) => {
     if (err instanceof AppError) return reply.status(err.status).send({ error: err.message });
+    if (err instanceof Anthropic.AuthenticationError) {
+      return reply.status(503).send({ error: 'Помощник не настроен: проверьте ANTHROPIC_API_KEY' });
+    }
+    if (err instanceof Anthropic.RateLimitError) return reply.status(429).send({ error: 'Помощник перегружен, повторите через минуту' });
+    if (err instanceof Anthropic.APIError) {
+      console.error(err);
+      return reply.status(502).send({ error: 'Помощник временно недоступен' });
+    }
     if (err.validation || err.statusCode === 400) return reply.status(400).send({ error: 'Некорректный запрос' });
     console.error(err);
     return reply.status(500).send({ error: 'Внутренняя ошибка сервера' });
@@ -504,6 +524,71 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     const res = await reports.closeTact(db, id);
     changed(id);
     return res;
+  });
+
+  app.patch('/api/admin/games/:id/rules', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'config');
+    await games.updateRules(db, id, (req.body as any).rules);
+    changed(id);
+    return { ok: true };
+  });
+
+  // ---------- AI assistant: a private chat per staff member and game ----------
+
+  app.get('/api/admin/games/:id/assistant', async (req) => {
+    const id = Number((req.params as any).id);
+    const { staff } = await needGame(req, id, 'view');
+    const thread = await assistant.currentThread(db, id, staff.id);
+    return { ...(await assistant.threadView(db, thread.id)), transcription: transcriptionEnabled() };
+  });
+
+  app.post('/api/admin/games/:id/assistant/new', async (req) => {
+    const id = Number((req.params as any).id);
+    const { staff } = await needGame(req, id, 'view');
+    const thread = await assistant.newThread(db, id, staff.id);
+    return { ...(await assistant.threadView(db, thread.id)), transcription: transcriptionEnabled() };
+  });
+
+  app.post('/api/admin/games/:id/assistant/messages', async (req) => {
+    const id = Number((req.params as any).id);
+    const { staff } = await needGame(req, id, 'view');
+    const b = req.body as any;
+    const image = b.image?.data ? { mediaType: String(b.image.mediaType), data: String(b.image.data) } : undefined;
+    return assistant.chat(db, claudeClient(), id, staff.id, { text: b.text, image });
+  });
+
+  async function needOwnProposal(req: FastifyRequest) {
+    const pid = Number((req.params as any).pid);
+    const [p] = await db.query(
+      'select p.game_id, t.staff_id from assistant_proposal p join assistant_thread t on t.id = p.thread_id where p.id = $1',
+      [pid],
+    );
+    if (!p) throw new AppError('Операция не найдена', 404);
+    const { staff } = await needGame(req, p.game_id, 'run');
+    if (p.staff_id !== staff.id) throw new AppError('Это операция из чужого чата', 403);
+    return { pid, staff };
+  }
+
+  app.post('/api/admin/assistant/proposals/:pid/confirm', async (req) => {
+    const { pid, staff } = await needOwnProposal(req);
+    const gameId = await assistant.confirmProposal(db, pid, staff.id);
+    changed(gameId);
+    return { ok: true };
+  });
+
+  app.post('/api/admin/assistant/proposals/:pid/reject', async (req) => {
+    const { pid } = await needOwnProposal(req);
+    await assistant.rejectProposal(db, pid);
+    return { ok: true };
+  });
+
+  app.post('/api/admin/assistant/transcribe', async (req) => {
+    await needStaff(req);
+    const b = req.body as any;
+    const audio = Buffer.from(String(b.data ?? ''), 'base64');
+    if (!audio.length) throw new AppError('Пустой аудиофайл');
+    return { text: await transcribe(audio, String(b.mediaType ?? ''), String(b.filename ?? '')) };
   });
 
   // ---------- Static web client ----------

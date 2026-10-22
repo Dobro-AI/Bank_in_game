@@ -145,3 +145,41 @@ create table if not exists account_event (
   payload jsonb not null default '{}',
   created_at timestamptz not null default now()
 );
+
+-- Free-text game rules for hosts and the assistant; inherited from the root like other config.
+alter table game add column if not exists rules text not null default '';
+alter table game add column if not exists rules_local_modified boolean not null default false;
+
+-- AI assistant: each staff member has their own threads per game (not shared with other hosts).
+create table if not exists assistant_thread (
+  id serial primary key,
+  game_id int not null references game(id) on delete cascade,
+  staff_id int not null references staff(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+-- Append-only API transcript: `api` is the exact message sent to Claude (replayed unchanged);
+-- `text`/`visible` are what the chat UI shows.
+create table if not exists assistant_message (
+  id serial primary key,
+  thread_id int not null references assistant_thread(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant')),
+  api jsonb not null,
+  text text not null default '',
+  has_image boolean not null default false,
+  visible boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- Operations the assistant recognised (e.g. from a photo of a paper slip); money moves only
+-- after the host confirms.
+create table if not exists assistant_proposal (
+  id serial primary key,
+  thread_id int not null references assistant_thread(id) on delete cascade,
+  game_id int not null references game(id) on delete cascade,
+  kind text not null check (kind in ('transfer', 'host_credit', 'host_debit', 'fixed_price')),
+  payload jsonb not null,
+  status text not null default 'pending' check (status in ('pending', 'done', 'rejected')),
+  transfer_id int references transfer(id),
+  created_at timestamptz not null default now()
+);

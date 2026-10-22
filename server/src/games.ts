@@ -124,8 +124,8 @@ export async function createBranch(db: Db, rootId: number, title: string, staffI
     const root = await getGame(tx, rootId);
     if (root.kind !== 'root') throw new AppError('Ответвление делается от корневой игры');
     const [b] = await tx.query(
-      "insert into game (title, kind, parent_id) values ($1, 'branch', $2) returning *",
-      [text(title) || root.title, rootId],
+      "insert into game (title, kind, parent_id, rules) values ($1, 'branch', $2, $3) returning *",
+      [text(title) || root.title, rootId, root.rules],
     );
     for (const entity of ENTITIES) {
       const map = entity === 'start_account' ? await roleMap(tx, b.id) : null;
@@ -202,6 +202,20 @@ export async function deleteRow(db: Db, entity: Entity, id: number) {
     );
     for (const c of copies) await tx.query(`delete from ${entity} where id = $1`, [c.id]);
     await tx.query(`delete from ${entity} where id = $1`, [id]);
+  });
+}
+
+/** Root rules flow to branches that have not written their own version. */
+export async function updateRules(db: Db, gameId: number, rules: unknown) {
+  const value = text(rules, 50_000);
+  return db.transaction(async (tx) => {
+    const g = await getGame(tx, gameId);
+    if (g.kind === 'branch') {
+      await tx.query('update game set rules = $2, rules_local_modified = true where id = $1', [gameId, value]);
+    } else {
+      await tx.query('update game set rules = $2 where id = $1', [gameId, value]);
+      await tx.query('update game set rules = $2 where parent_id = $1 and not rules_local_modified', [gameId, value]);
+    }
   });
 }
 

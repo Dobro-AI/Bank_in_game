@@ -38,11 +38,47 @@ export function Config({ ctx }: { ctx: Ctx }) {
           уже открытые счета они не меняют (для этого есть начисления).
         </p>
       )}
+      <Rules ctx={ctx} />
       <Editor ctx={ctx} title="Роли" slug="roles" fields={ROLE_FIELDS} rows={d.roles} />
       <Editor ctx={ctx} title="Стартовые юрлица" slug="start-accounts" fields={ACCOUNT_FIELDS} rows={d.startAccounts} />
       <Editor ctx={ctx} title="Прайс фиксированных платежей" slug="price-items" fields={PRICE_FIELDS} rows={d.priceItems}
         hint="Игрок оплачивает позицию игротехнику; цена подставляется сама, баланс может уйти в минус." />
     </div>
+  );
+}
+
+/** Free-text rules: shown to hosts and used by the assistant when answering and designing mechanics. */
+function Rules({ ctx }: { ctx: Ctx }) {
+  const saved = ctx.d.game.rules ?? '';
+  const [rules, setRules] = useState(saved);
+  const [error, setError] = useState<string>();
+  const [ok, setOk] = useState(false);
+  const branch = ctx.d.game.kind === 'branch';
+  async function save() {
+    setError(undefined);
+    try {
+      await api(`/api/admin/games/${ctx.id}/rules`, { method: 'PATCH', body: { rules } });
+      setOk(true);
+      ctx.reload();
+    } catch (e: any) { setError(e.message); }
+  }
+  return (
+    <section className="section stack">
+      <div className="row between">
+        <h2 style={{ margin: 0 }}>Правила игры</h2>
+        {branch && ctx.d.game.rules_local_modified && <span className="chip warn">изменено здесь</span>}
+      </div>
+      <p className="small muted">Экономика, налоги, механики. Помощник опирается на этот текст.</p>
+      <textarea value={rules} onChange={(e) => { setRules(e.target.value); setOk(false); }} rows={8} readOnly={!ctx.d.can.config}
+        aria-label="Правила игры" maxLength={50000} />
+      {ctx.d.can.config && (
+        <div className="row">
+          <button className="btn primary" disabled={rules === saved} onClick={save}>Сохранить правила</button>
+          {ok && <span className="ok small">Сохранено</span>}
+        </div>
+      )}
+      <ErrorText error={error} />
+    </section>
   );
 }
 

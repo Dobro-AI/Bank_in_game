@@ -143,3 +143,16 @@ tfoot td { font-weight: 650; background: #fafafa; }
 @media (min-width: 900px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
 
 .code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 16px; letter-spacing: 0.1em; font-weight: 600; }
+
+.assistant { display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
+.chat {
+  display: flex; flex-direction: column; gap: 12px; min-height: 320px; max-height: 60vh; overflow-y: auto;
+  padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.bubble { max-width: 85%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
+.bubble.user { align-self: flex-end; background: var(--accent-soft); }
+.bubble.assistant { align-self: flex-start; background: #f3f4f6; }
+.proposal { align-self: flex-start; width: min(420px, 100%); border-color: var(--accent); }
+.composer { display: flex; flex-direction: column; gap: 8px; }
+.thumb { width: 72px; height: 72px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--line); }
+.btn[aria-pressed='true'] { border-color: var(--danger); color: var(--danger); }
