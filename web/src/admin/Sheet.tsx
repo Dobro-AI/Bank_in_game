@@ -3,7 +3,7 @@ import { api, dateTime, useLoad } from '../api';
 import { ErrorText, Field } from '../ui';
 import type { Ctx } from './GamePage';
 
-interface Status { sheetId: string; syncedAt: string | null; error: string; serviceEmail: string | null }
+interface Status { sheetId: string; syncedAt: string | null; error: string; serviceEmail: string | null; baseFolderId: string; gameFolderId: string }
 
 /** Live mirror of the game in Google Sheets, embedded in the cabinet. */
 export function Sheet({ ctx }: { ctx: Ctx }) {
@@ -23,6 +23,14 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
       status.reload();
     } catch (err: any) { setError(err.message); } finally { setBusy(false); }
   }
+  async function create() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api(`/api/admin/games/${ctx.id}/sheet/create`, { body: {} });
+      status.reload();
+    } catch (err: any) { setError(err.message); status.reload(); } finally { setBusy(false); }
+  }
   async function sync() {
     setBusy(true);
     await api(`/api/admin/games/${ctx.id}/sheet/sync`, { body: {} }).catch((e) => setError(e.message));
@@ -40,6 +48,16 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
           Google не подключён на сервере. Нужен технический аккаунт Google: администратор сервера задаёт его ключ
           в переменной <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> (инструкция в README).
         </div>
+      )}
+      {ctx.d.can.super && <BaseFolder current={s.baseFolderId} onSaved={status.reload} />}
+      {!s.sheetId && s.baseFolderId && ctx.d.can.config && ctx.d.game.kind === 'branch' && (
+        <div className="panel row between">
+          <span className="small">Банк создаст таблицу в общей папке, в подпапке этой игры, и сразу её заполнит.</span>
+          <button className="btn primary" disabled={busy} onClick={create}>{busy ? 'Создаём…' : 'Создать таблицу в папке'}</button>
+        </div>
+      )}
+      {s.gameFolderId && (
+        <a className="small" href={`https://drive.google.com/drive/folders/${s.gameFolderId}`} target="_blank" rel="noreferrer">Подпапка игры на Google Диске</a>
       )}
       <form className="panel stack" onSubmit={save}>
         <p className="small" style={{ margin: 0 }}>
@@ -68,5 +86,33 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
         Исправлять приход и расход активов нужно в разделе «Мощности».
       </p>
     </div>
+  );
+}
+
+/** Super host: the shared Drive folder; spreadsheets go to subfolders named after root games. */
+function BaseFolder({ current, onSaved }: { current: string; onSaved: () => void }) {
+  const [link, setLink] = useState(current ? `https://drive.google.com/drive/folders/${current}` : '');
+  const [error, setError] = useState<string>();
+  const [ok, setOk] = useState(false);
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setError(undefined);
+    try {
+      await api('/api/admin/drive-folder', { method: 'PUT', body: { folder: link } });
+      setOk(true);
+      onSaved();
+    } catch (err: any) { setError(err.message); }
+  }
+  return (
+    <form className="panel stack" onSubmit={save}>
+      <Field label="Общая папка для таблиц всех игр" hint="Внутри появятся подпапки по играм. Папку нужно открыть техническому аккаунту как редактору.">
+        <input value={link} onChange={(e) => { setLink(e.target.value); setOk(false); }} placeholder="https://drive.google.com/drive/folders/…" />
+      </Field>
+      <div className="row">
+        <button className="btn">Сохранить папку</button>
+        {ok && <span className="ok small">Сохранено</span>}
+      </div>
+      <ErrorText error={error} />
+    </form>
   );
 }

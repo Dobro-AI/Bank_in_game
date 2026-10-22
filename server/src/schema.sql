@@ -252,3 +252,7 @@ create table if not exists tact_posting (
 alter table game add column if not exists sheet_id text not null default '';
 alter table game add column if not exists sheet_synced_at timestamptz;
 alter table game add column if not exists sheet_error text not null default '';
+
+-- Instance-wide settings (e.g. the Google Drive folder for game spreadsheets).
+create table if not exists app_setting (key text primary key, value text not null default '');
+alter table game add column if not exists drive_folder_id text not null default '';

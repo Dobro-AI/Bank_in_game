@@ -602,9 +602,27 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   // ---------- Google Sheets mirror ----------
 
   async function sheetStatus(id: number) {
-    const [g] = await db.query('select sheet_id, sheet_synced_at, sheet_error from game where id = $1', [id]);
-    return { sheetId: g.sheet_id, syncedAt: g.sheet_synced_at, error: g.sheet_error, serviceEmail: sheets.serviceEmail() };
+    const [g] = await db.query('select sheet_id, sheet_synced_at, sheet_error, drive_folder_id from game where id = $1', [id]);
+    return {
+      sheetId: g.sheet_id, syncedAt: g.sheet_synced_at, error: g.sheet_error, serviceEmail: sheets.serviceEmail(),
+      baseFolderId: await sheets.getSetting(db, 'drive_folder_id'), gameFolderId: g.drive_folder_id,
+    };
   }
+
+  /** The Drive folder where game spreadsheets are created, in subfolders per root game. */
+  app.put('/api/admin/drive-folder', async (req) => {
+    await needSuper(req);
+    await sheets.setSetting(db, 'drive_folder_id', sheets.parseFolderId((req.body as any).folder));
+    return { ok: true };
+  });
+
+  app.post('/api/admin/games/:id/sheet/create', async (req) => {
+    const id = Number((req.params as any).id);
+    const { game } = await needGame(req, id, 'config');
+    if (game.kind !== 'branch') throw new AppError('Таблица создаётся для ответвления игры');
+    await sheets.createInFolder(db, id);
+    return sheetStatus(id);
+  });
 
   app.get('/api/admin/games/:id/sheet', async (req) => {
     const id = Number((req.params as any).id);

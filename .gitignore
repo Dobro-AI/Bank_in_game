@@ -6,3 +6,4 @@ dist/
 .DS_Store
 .claude/
 server/data/
+secrets/

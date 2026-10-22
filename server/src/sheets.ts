@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { JWT } from 'google-auth-library';
 import * as assets from './assets.js';
 import { AppError, Db } from './db.js';
@@ -13,8 +13,9 @@ import { KIND_LABEL, listTransfers, membersByAccount, summary, totalsByOwner } f
 interface Credentials { client_email: string; private_key: string }
 
 function credentials(): Credentials | null {
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
-    ?? (process.env.GOOGLE_SERVICE_ACCOUNT_FILE ? readFileSync(process.env.GOOGLE_SERVICE_ACCOUNT_FILE, 'utf8') : '');
+  const file = process.env.GOOGLE_SERVICE_ACCOUNT_FILE;
+  // A configured but not yet created key file means "not set up", not a crash.
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? (file && existsSync(file) ? readFileSync(file, 'utf8') : '');
   if (!raw) return null;
   const c = JSON.parse(raw);
   return c.client_email && c.private_key ? c : null;
@@ -28,8 +29,96 @@ let client: JWT | null = null;
 function google() {
   const c = credentials();
   if (!c) throw new AppError('Google не настроен: задайте GOOGLE_SERVICE_ACCOUNT_JSON на сервере', 503);
-  client ??= new JWT({ email: c.client_email, key: c.private_key, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+  client ??= new JWT({ email: c.client_email, key: c.private_key, scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'] });
   return client;
+}
+
+/** Accepts a Drive folder link or a bare id. */
+export function parseFolderId(v: unknown) {
+  const s = String(v ?? '').trim();
+  const m = s.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  const id = m ? m[1] : s;
+  if (id && !/^[a-zA-Z0-9_-]{10,}$/.test(id)) throw new AppError('Не похоже на ссылку на папку Google Диска');
+  return id;
+}
+
+// ---------- Folders: base folder / <root game> / <branch spreadsheet> ----------
+
+const DRIVE = 'https://www.googleapis.com/drive/v3/files';
+const FOLDER = 'application/vnd.google-apps.folder';
+
+export async function getSetting(db: Db, key: string) {
+  const [r] = await db.query('select value from app_setting where key = $1', [key]);
+  return (r?.value as string) ?? '';
+}
+
+export async function setSetting(db: Db, key: string, value: string) {
+  await db.query('insert into app_setting (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value', [key, value]);
+}
+
+const q = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+async function ensureFolder(name: string, parent: string) {
+  const api = google();
+  const found = await api.request<{ files: { id: string }[] }>({
+    url: DRIVE,
+    params: {
+      q: `name = '${q(name)}' and mimeType = '${FOLDER}' and '${parent}' in parents and trashed = false`,
+      fields: 'files(id)', supportsAllDrives: true, includeItemsFromAllDrives: true,
+    },
+  });
+  if (found.data.files[0]) return found.data.files[0].id;
+  const created = await api.request<{ id: string }>({
+    url: DRIVE, method: 'POST', params: { supportsAllDrives: true }, data: { name, mimeType: FOLDER, parents: [parent] },
+  });
+  return created.data.id;
+}
+
+const folderUrl = (id: string) => `https://drive.google.com/drive/folders/${id}`;
+
+/**
+ * Creates the branch's spreadsheet in base folder / <root game title>, connects it and fills it.
+ * A service account has no Drive storage of its own, so Google may refuse to create the file in a
+ * personal folder; the subfolder still gets created and the host is told to make the sheet there.
+ */
+export async function createInFolder(db: Db, gameId: number) {
+  const base = await getSetting(db, 'drive_folder_id');
+  if (!base) throw new AppError('Папка Google Диска для таблиц не задана (раздел «Google-таблица», делает Супер-ведущий)');
+  const [g] = await db.query(
+    `select b.title, b.sheet_id, r.title as root_title,
+            coalesce((select string_agg(s.name, ', ') from game_staff gs join staff s on s.id = gs.staff_id where gs.game_id = b.id), '') as hosts
+     from game b left join game r on r.id = b.parent_id where b.id = $1`,
+    [gameId],
+  );
+  if (!g) throw new AppError('Игра не найдена', 404);
+  if (g.sheet_id) throw new AppError('Таблица уже подключена');
+  let folder: string;
+  try {
+    folder = await ensureFolder(g.root_title ?? g.title, base);
+  } catch (e: any) {
+    const reason = e?.response?.data?.error?.details?.find((d: any) => d.reason)?.reason;
+    throw new AppError(reason === 'SERVICE_DISABLED'
+      ? 'В проекте Google Cloud выключен Google Drive API — включите его для проекта технического аккаунта'
+      : e?.response?.status === 404 || e?.response?.status === 403
+        ? `Нет доступа к папке: откройте её для ${serviceEmail()} с правом редактирования`
+        : 'Не удалось создать подпапку на Google Диске', 502);
+  }
+  await db.query('update game set drive_folder_id = $2 where id = $1', [gameId, folder]);
+  const name = g.hosts ? `${g.title} — ${g.hosts}` : g.title;
+  try {
+    const sheet = await google().request<{ id: string }>({
+      url: DRIVE, method: 'POST', params: { supportsAllDrives: true },
+      data: { name, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [folder] },
+    });
+    await db.query("update game set sheet_id = $2, sheet_error = '' where id = $1", [gameId, sheet.data.id]);
+  } catch (e: any) {
+    console.error('drive create sheet', e?.response?.data?.error?.message ?? e);
+    throw new AppError(
+      `Подпапка «${g.root_title ?? g.title}» создана, но Google не разрешает техническому аккаунту создавать в ней таблицы. ` +
+      `Создайте таблицу в подпапке сами (${folderUrl(folder)}) и вставьте ссылку ниже.`, 502);
+  }
+  await syncNow(db, gameId).catch(() => {});
+  return { folderUrl: folderUrl(folder) };
 }
 
 /** Accepts a spreadsheet link or a bare id. */
