@@ -1,0 +1,195 @@
+import { AppError, Db, Tx, isUniqueViolation } from './db.js';
+
+export type TransferKind = 'player' | 'to_host' | 'fixed_price' | 'host_credit' | 'host_debit' | 'initial';
+
+export interface TransferInput {
+  gameId: number;
+  kind: TransferKind;
+  fromAccountId: number;
+  toAccountId: number;
+  amount: number;
+  comment?: string;
+  priceItemId?: number | null;
+  initiatorPlayerId?: number | null;
+  initiatorStaffId?: number | null;
+  idempotencyKey?: string | null;
+  /** Fixed-price costs and host debits may push a player account below zero. */
+  allowNegative?: boolean;
+}
+
+export function parseAmount(v: unknown): number {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  if (typeof n !== 'number' || !Number.isSafeInteger(n) || n <= 0) {
+    throw new AppError('Сумма должна быть целым числом больше нуля');
+  }
+  return n;
+}
+
+/**
+ * The only place where balances change. Must run inside a transaction:
+ * the open tact is share-locked (so closing a tact waits for in-flight transfers)
+ * and both accounts are row-locked in id order (no deadlocks, no overdraft races).
+ */
+export async function transferTx(tx: Tx, t: TransferInput) {
+  const amount = parseAmount(t.amount);
+  if (t.fromAccountId === t.toAccountId) throw new AppError('Нельзя перевести на тот же счёт');
+  const comment = (t.comment ?? '').trim().slice(0, 500);
+
+  const [tact] = await tx.query(
+    'select id from tact where game_id = $1 and closed_at is null for share',
+    [t.gameId],
+  );
+  if (!tact) throw new AppError('Игра ещё не запущена');
+
+  const accounts = await tx.query(
+    'select id, kind, balance from account where id = any($1::int[]) and game_id = $2 order by id for update',
+    [[t.fromAccountId, t.toAccountId], t.gameId],
+  );
+  const from = accounts.find((a) => a.id === t.fromAccountId);
+  const to = accounts.find((a) => a.id === t.toAccountId);
+  if (!from || !to) throw new AppError('Счёт не найден в этой игре', 404);
+  if (from.kind !== 'host' && !t.allowNegative && from.balance < amount) {
+    throw new AppError('Недостаточно средств на счёте');
+  }
+
+  const [row] = await tx.query(
+    `insert into transfer (game_id, tact_id, kind, from_account_id, to_account_id, amount, price_item_id,
+       comment, initiator_player_id, initiator_staff_id, idempotency_key)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+    [t.gameId, tact.id, t.kind, from.id, to.id, amount, t.priceItemId ?? null, comment,
+      t.initiatorPlayerId ?? null, t.initiatorStaffId ?? null, t.idempotencyKey || null],
+  );
+  await tx.query('update account set balance = balance - $1 where id = $2', [amount, from.id]);
+  await tx.query('update account set balance = balance + $1 where id = $2', [amount, to.id]);
+  return row;
+}
+
+/**
+ * Runs a transfer in its own transaction. A repeated idempotency key (double tap, retry
+ * after a dropped connection) returns the original transfer instead of charging again.
+ */
+export async function transfer(db: Db, t: TransferInput, check?: (tx: Tx) => Promise<void>) {
+  const key = t.idempotencyKey || null;
+  if (key) {
+    const [existing] = await db.query('select * from transfer where idempotency_key = $1', [key]);
+    if (existing) return { transfer: existing, duplicate: true };
+  }
+  try {
+    const row = await db.transaction(async (tx) => {
+      if (check) await check(tx);
+      return transferTx(tx, t);
+    });
+    return { transfer: row, duplicate: false };
+  } catch (e) {
+    if (key && isUniqueViolation(e)) {
+      const [existing] = await db.query('select * from transfer where idempotency_key = $1', [key]);
+      if (existing) return { transfer: existing, duplicate: true };
+    }
+    throw e;
+  }
+}
+
+/** Client keys are namespaced per initiator so one user can never replay another's key. */
+const scopedKey = (scope: string, key?: string) => (key ? `${scope}:${String(key).slice(0, 100)}` : null);
+
+export async function hostAccountId(tx: Tx, gameId: number): Promise<number> {
+  const [a] = await tx.query("select id from account where game_id = $1 and kind = 'host'", [gameId]);
+  if (!a) throw new AppError('Игра ещё не запущена');
+  return a.id;
+}
+
+/** Accounts a player may send from: owner, or co-owner who has entered the account PIN once. */
+export async function assertCanSpend(tx: Tx, roleId: number, accountId: number) {
+  const [m] = await tx.query(
+    'select member, pin_ok from account_member where role_id = $1 and account_id = $2',
+    [roleId, accountId],
+  );
+  if (!m) throw new AppError('Нет доступа к этому счёту', 403);
+  if (m.member === 'coowner' && !m.pin_ok) {
+    throw new AppError('Введите PIN счёта, чтобы переводить с него', 403);
+  }
+}
+
+export interface PlayerCtx {
+  playerId: number;
+  roleId: number;
+  gameId: number;
+}
+
+export async function playerTransfer(
+  db: Db,
+  p: PlayerCtx,
+  body: { fromAccountId: number; toAccountId: number; amount: unknown; comment?: string; idempotencyKey?: string },
+) {
+  const amount = parseAmount(body.amount);
+  const [to] = await db.query('select kind from account where id = $1 and game_id = $2', [body.toAccountId, p.gameId]);
+  if (!to) throw new AppError('Получатель не найден', 404);
+  return transfer(
+    db,
+    {
+      gameId: p.gameId,
+      kind: to.kind === 'host' ? 'to_host' : 'player',
+      fromAccountId: body.fromAccountId,
+      toAccountId: body.toAccountId,
+      amount,
+      comment: body.comment,
+      initiatorPlayerId: p.playerId,
+      idempotencyKey: scopedKey(`p${p.playerId}`, body.idempotencyKey),
+    },
+    (tx) => assertCanSpend(tx, p.roleId, body.fromAccountId),
+  );
+}
+
+export async function payFixedPrice(
+  db: Db,
+  p: PlayerCtx,
+  body: { fromAccountId: number; priceItemId: number; comment?: string; idempotencyKey?: string },
+) {
+  const [item] = await db.query(
+    'select id, title, price from price_item where id = $1 and game_id = $2 and active',
+    [body.priceItemId, p.gameId],
+  );
+  if (!item) throw new AppError('Позиция прайса не найдена', 404);
+  const hostId = await hostAccountId(db, p.gameId);
+  const comment = [item.title, (body.comment ?? '').trim()].filter(Boolean).join(' — ');
+  return transfer(
+    db,
+    {
+      gameId: p.gameId,
+      kind: 'fixed_price',
+      fromAccountId: body.fromAccountId,
+      toAccountId: hostId,
+      amount: item.price,
+      priceItemId: item.id,
+      comment,
+      initiatorPlayerId: p.playerId,
+      idempotencyKey: scopedKey(`p${p.playerId}`, body.idempotencyKey),
+      allowNegative: true,
+    },
+    (tx) => assertCanSpend(tx, p.roleId, body.fromAccountId),
+  );
+}
+
+export async function hostAdjust(
+  db: Db,
+  gameId: number,
+  staffId: number,
+  body: { accountId: number; direction: 'credit' | 'debit'; amount: unknown; comment?: string; idempotencyKey?: string },
+) {
+  const amount = parseAmount(body.amount);
+  const hostId = await hostAccountId(db, gameId);
+  if (body.accountId === hostId) throw new AppError('Выберите счёт игрока');
+  const credit = body.direction === 'credit';
+  if (!credit && body.direction !== 'debit') throw new AppError('Неизвестный тип операции');
+  return transfer(db, {
+    gameId,
+    kind: credit ? 'host_credit' : 'host_debit',
+    fromAccountId: credit ? hostId : body.accountId,
+    toAccountId: credit ? body.accountId : hostId,
+    amount,
+    comment: body.comment,
+    initiatorStaffId: staffId,
+    idempotencyKey: scopedKey(`s${staffId}`, body.idempotencyKey),
+    allowNegative: true,
+  });
+}

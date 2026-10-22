@@ -11,11 +11,48 @@
 
 ## Статус
 
-Этап проектирования. Архитектура, экраны, модель данных и открытые вопросы — в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Этап 1 готов: сервер, база, веб-кабинеты игрока, ведущего и Супер-ведущего, такты, выгрузка в Excel.
+Дальше: Telegram-бот и Mini App (этап 2), синхронизация с Google Sheets (этап 3).
+Архитектура, модель данных и согласованные правила — в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Планируемый стек
+## Стек
 
-Node.js + TypeScript (Fastify), PostgreSQL, React + Vite (веб и Mini App), grammY (бот), Google Sheets API.
+Node.js + TypeScript (Fastify), PostgreSQL, React + Vite. Для локального запуска и тестов используется
+встроенный PostgreSQL (PGlite) — ставить базу не нужно.
+
+## Запуск локально
+
+Нужен Node.js 20+.
+
+```bash
+npm install
+npm run seed:demo   # демо-игра «Город N»: super/super123, host/host123, коды ролей печатаются в консоль
+npm run dev         # сервер http://localhost:3000, веб http://localhost:5173
+```
+
+Тесты: `npm test`.
+
+## Продакшен
+
+```bash
+npm run build
+DATABASE_URL=postgres://... SUPER_LOGIN=... SUPER_PASSWORD=... SECURE_COOKIES=1 npm start
+```
+
+| Переменная | Значение |
+|---|---|
+| `DATABASE_URL` | PostgreSQL; если не задана — локальный PGlite в `PGLITE_DIR` (по умолчанию `./data`) |
+| `SUPER_LOGIN`, `SUPER_PASSWORD` | первый Супер-ведущий, создаётся при пустой базе |
+| `PORT` | порт, по умолчанию 3000 |
+| `SECURE_COOKIES=1` | включить при работе по HTTPS |
+
+## Как устроено
+
+- Все деньги двигаются только через одну функцию перевода (`server/src/transfers.ts`): транзакция,
+  блокировка счетов, проверка баланса, уникальный ключ операции против двойного списания.
+- Корневая игра описывает роли, стартовые балансы, юрлица и прайс; ответвления наследуют изменения корня,
+  пока ведущий не изменил строку у себя.
+- Балансы в кабинетах обновляются сами (Server-Sent Events).
 
 ## Референсы
 
