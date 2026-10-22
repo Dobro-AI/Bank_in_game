@@ -4,6 +4,7 @@ import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import { PlayerApp } from './player/PlayerApp';
 import { AdminApp } from './admin/AdminApp';
 import './styles.css';
+import './bank.css';
 
 function Landing() {
   return (

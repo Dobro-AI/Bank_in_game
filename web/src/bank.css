@@ -27,7 +27,7 @@
 
 /* ---------- Shell: bottom tab bar on phones, left sidebar on desktop ---------- */
 
-.bank-main { max-width: 640px; margin: 0 auto; padding: 16px 16px calc(var(--nav-h) + 32px + env(safe-area-inset-bottom)); }
+.bank-main { min-width: 0; max-width: 640px; margin: 0 auto; padding: 16px 16px calc(var(--nav-h) + 32px + env(safe-area-inset-bottom)); }
 
 .bank-nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
@@ -43,7 +43,7 @@
 .bank-nav-item:focus-visible { outline: 2px solid var(--text); outline-offset: -4px; border-radius: 12px; }
 
 @media (min-width: 900px) {
-  .bank-shell { display: grid; grid-template-columns: 248px 1fr; }
+  .bank-shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); }
   .bank-nav {
     position: sticky; top: 0; height: 100dvh; flex-direction: column; gap: 4px;
     padding: 24px 12px; border-top: none; border-right: 1px solid var(--line);
@@ -186,3 +186,42 @@ a.settings-row:hover, button.settings-row:hover { background: #fcfcfc; }
 .danger-text { color: #b91c1c; }
 /* Outgoing operations are plain text; red stays for negative balances only. */
 .op-amount .money.negative { color: var(--text); }
+
+/* ---------- Host cabinet (same shell, wider content) ---------- */
+
+.bank-main.wide { max-width: 1200px; }
+.bank button.bank-nav-item { background: none; border: none; font: inherit; cursor: pointer; width: 100%; }
+.nav-footer { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.nav-footer .bank-brand-sub { padding: 0 12px 4px; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.page-head h1 { margin: 0 0 4px; font-size: 24px; }
+.page-head p { margin: 0; }
+
+@media (max-width: 899px) {
+  .admin .bank-nav {
+    position: sticky; top: 0; bottom: auto; flex-direction: row; overflow-x: auto; gap: 4px; padding: 8px 12px;
+    border-top: none; border-bottom: 1px solid var(--line); scrollbar-width: none;
+  }
+  .admin .bank-nav::-webkit-scrollbar { display: none; }
+  .admin .bank .bank-nav-item, .admin .bank-nav-item {
+    flex: none; flex-direction: row; gap: 8px; height: 44px; padding: 0 12px; border-radius: 999px; font-size: 14px; width: auto;
+  }
+  .admin .bank-nav-item.active { background: var(--bg); }
+  .admin .nav-footer { margin: 0; padding: 0; border: none; flex-direction: row; }
+  .admin .nav-footer .bank-brand-sub { display: none; }
+  .admin .bank-main { padding-bottom: 48px; }
+}
+@media (min-width: 900px) {
+  .admin .bank-nav { overflow-y: auto; }
+  .back-link { color: var(--muted) !important; margin-bottom: 8px; }
+}
+
+/* Existing host widgets restyled to the bank look. */
+.bank .table-wrap, .bank .panel, .bank .list, .bank .chat { border: none; border-radius: 16px; }
+.bank th { background: var(--surface); }
+.bank tfoot td { background: #fafafa; }
+.bank .banner { background: #fff6c2; border-radius: 16px; }
+.bank .bubble.user { background: #fff3b0; }
+.bank .proposal { border: 2px solid var(--text); }
+.bank .cell-input { border-radius: 8px; }
+.bank h2 { font-size: 20px; }

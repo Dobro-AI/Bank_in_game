@@ -1,8 +1,10 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, ReactNode, useState } from 'react';
 import { Link, Route, Routes, useNavigate } from 'react-router-dom';
 import { api, useLoad } from '../api';
 import { Empty, ErrorText, Field } from '../ui';
+import { BadgeIcon, GridIcon } from '../icons';
 import { GamePage } from './GamePage';
+import { AdminShell, NavItem } from './Shell';
 
 export interface Staff { id: number; name: string; login: string; kind: 'super' | 'host' }
 
@@ -10,29 +12,22 @@ export function AdminApp() {
   const me = useLoad(() => api<{ staff: Staff | null }>('/api/me'), []);
   if (!me.data) return <main className="page narrow"><ErrorText error={me.error} /></main>;
   const staff = me.data.staff;
-  if (!staff) return <Login onDone={me.reload} />;
+  if (!staff) return <div className="bank"><Login onDone={me.reload} /></div>;
 
-  async function logout() {
-    await api('/api/logout', { body: { who: 'staff' } });
-    me.reload();
-  }
+  const items: NavItem[] = [
+    { to: '/admin', label: staff.kind === 'super' ? 'Игры' : 'Мои игры', icon: <GridIcon />, end: true },
+    ...(staff.kind === 'super' ? [{ to: '/admin/staff', label: 'Ведущие', icon: <BadgeIcon /> }] : []),
+  ];
+  const home = (page: ReactNode) => (
+    <AdminShell staff={staff} title="Кабинет ведущего" subtitle="Игровой банк" items={items} onLogout={me.reload}>{page}</AdminShell>
+  );
 
   return (
-    <>
-      <header className="topbar">
-        <Link to="/admin" className="title grow" style={{ color: 'inherit', textDecoration: 'none' }}>Игровой банк · кабинет</Link>
-        {staff.kind === 'super' && <Link to="/admin/staff" className="btn small">Ведущие</Link>}
-        <span className="small muted">{staff.name}{staff.kind === 'super' ? ' · Супер-ведущий' : ''}</span>
-        <button className="btn small" onClick={logout}>Выйти</button>
-      </header>
-      <main className="page">
-        <Routes>
-          <Route index element={<Games staff={staff} />} />
-          <Route path="staff" element={<StaffPage />} />
-          <Route path="g/:id" element={<GamePage staff={staff} />} />
-        </Routes>
-      </main>
-    </>
+    <Routes>
+      <Route index element={home(<Games staff={staff} />)} />
+      <Route path="staff" element={home(<StaffPage />)} />
+      <Route path="g/:id/:section?" element={<GamePage staff={staff} onLogout={me.reload} />} />
+    </Routes>
   );
 }
 

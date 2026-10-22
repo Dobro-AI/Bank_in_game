@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ACCOUNT_KIND, api, useLoad } from '../api';
 import { Confirm, ErrorText, Field, Money } from '../ui';
 import { OperationRow } from './History';
-import { TransferIcon } from './icons';
+import { TransferIcon } from '../icons';
 import { ScreenHeader } from './Screen';
 import { Account, Me, Operation, Recipient, canSpend, memberName } from './types';
 

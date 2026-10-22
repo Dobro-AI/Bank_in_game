@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BackIcon } from './icons';
+import { BackIcon } from '../icons';
 
 export function ScreenHeader({ title, back }: { title: ReactNode; back?: string | true }) {
   const nav = useNavigate();

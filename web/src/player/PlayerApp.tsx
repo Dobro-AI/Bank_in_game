@@ -3,12 +3,11 @@ import { ACCOUNT_KIND, api, useLive, useLoad } from '../api';
 import { ErrorText, Money } from '../ui';
 import { AccountPage, ConnectByPin, NewLegal } from './Accounts';
 import { History, OperationRow } from './History';
-import { BuildingIcon, ChevronIcon, HistoryIcon, HomeIcon, MoreIcon, PlusIcon, TransferIcon } from './icons';
+import { BuildingIcon, ChevronIcon, HistoryIcon, HomeIcon, MoreIcon, PlusIcon, TransferIcon } from '../icons';
 import { Join } from './Join';
 import { ScreenHeader } from './Screen';
 import { AmountPage, RecipientPicker } from './Transfer';
 import { Account, Me, Operation, canSpend } from './types';
-import './bank.css';
 
 export function PlayerApp() {
   const me = useLoad(() => api<{ player: Me | null }>('/api/me'), []);

@@ -1,52 +1,67 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, ReactNode, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, newKey, useLive, useLoad } from '../api';
-import { Confirm, Empty, ErrorText, Field, Money, Tabs } from '../ui';
+import { AdjustIcon, BadgeIcon, BranchIcon, ChartIcon, FlagIcon, GearIcon, SparkIcon, TransferIcon, UsersIcon } from '../icons';
+import { Confirm, Empty, ErrorText, Field, Money } from '../ui';
 import type { Staff } from './AdminApp';
 import { Assistant } from './Assistant';
 import { Config } from './Config';
+import { AdminShell, NavItem } from './Shell';
 
 export interface GameData {
   game: any; roles: any[]; startAccounts: any[]; priceItems: any[]; staff: Staff[]; branches: any[];
   can: { config: boolean; run: boolean; super: boolean };
 }
 
-type Tab = 'summary' | 'transfers' | 'people' | 'adjust' | 'tacts' | 'config' | 'staff' | 'branches' | 'assistant';
+type Section = 'summary' | 'transfers' | 'people' | 'adjust' | 'tacts' | 'config' | 'staff' | 'branches' | 'assistant';
 
-export function GamePage({ staff }: { staff: Staff }) {
-  const id = Number(useParams().id);
+const SECTIONS: Record<Section, { label: string; icon: ReactNode }> = {
+  summary: { label: 'Сводка', icon: <ChartIcon /> },
+  transfers: { label: 'Переводы', icon: <TransferIcon /> },
+  people: { label: 'Участники', icon: <UsersIcon /> },
+  adjust: { label: 'Начисления', icon: <AdjustIcon /> },
+  tacts: { label: 'Такты', icon: <FlagIcon /> },
+  assistant: { label: 'Помощник', icon: <SparkIcon /> },
+  config: { label: 'Настройки', icon: <GearIcon /> },
+  staff: { label: 'Ведущие', icon: <BadgeIcon /> },
+  branches: { label: 'Ответвления', icon: <BranchIcon /> },
+};
+
+/** A game's sections live in the left menu; the section is part of the URL so reloads keep it. */
+export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => void }) {
+  const params = useParams();
+  const id = Number(params.id);
   const data = useLoad(() => api<GameData>(`/api/admin/games/${id}`), [id]);
   const accounts = useLoad(() => api<any[]>(`/api/admin/games/${id}/accounts`), [id]);
   const tacts = useLoad(() => api<any[]>(`/api/admin/games/${id}/tacts`), [id]);
-  const [tab, setTab] = useState<Tab>();
   const [tick, setTick] = useState(0);
   useLive(id, () => { data.reload(); accounts.reload(); tacts.reload(); setTick((t) => t + 1); });
 
   const d = data.data;
-  if (!d) return <ErrorText error={data.error} />;
+  if (!d) return <main className="page"><ErrorText error={data.error} /></main>;
   const isRoot = d.game.kind === 'root';
-  const tabs: [Tab, string][] = isRoot
-    ? [['config', 'Настройки'], ['branches', 'Ответвления'], ['assistant', 'Помощник']]
-    : [['summary', 'Сводка'], ['transfers', 'Переводы'], ['people', 'Участники'],
-      ...(d.can.run ? [['adjust', 'Начисления'] as [Tab, string]] : []), ['tacts', 'Такты'], ['assistant', 'Помощник'],
-      ['config', 'Настройки'], ['staff', 'Ведущие']];
-  const current = tab && tabs.some(([k]) => k === tab) ? tab : tabs[0][0];
+  const sections: Section[] = isRoot
+    ? ['config', 'branches', 'assistant']
+    : ['summary', 'transfers', 'people', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'assistant', 'config', 'staff'];
+  const current = sections.includes(params.section as Section) ? (params.section as Section) : sections[0];
   const ctx = { id, d, accounts: accounts.data ?? [], tacts: tacts.data ?? [], tick, reload: () => { data.reload(); accounts.reload(); tacts.reload(); } };
+  const items: NavItem[] = sections.map((k, i) => ({
+    to: i === 0 ? `/admin/g/${id}` : `/admin/g/${id}/${k}`, end: i === 0, label: SECTIONS[k].label, icon: SECTIONS[k].icon,
+  }));
 
   return (
-    <>
-      <Link to="/admin" className="btn link">← Игры</Link>
-      <div className="row between">
+    <AdminShell staff={staff} items={items} onLogout={onLogout} back={{ to: '/admin', label: 'Все игры' }}
+      title={d.game.title} subtitle={isRoot ? 'Корневая игра' : `Ответвление · ${STATUS[d.game.status]}`}>
+      <header className="page-head">
         <div>
-          <h1>{d.game.title}</h1>
+          <h1>{SECTIONS[current].label}</h1>
           <p className="muted small">
-            {isRoot ? 'Корневая игра — изменения применяются во всех ответвлениях' : `Ответвление · ${STATUS[d.game.status]}`}
+            {d.game.title}{isRoot ? ' · изменения применяются во всех ответвлениях' : ''}
           </p>
         </div>
         {!isRoot && d.game.status === 'active' && <OpenTact tacts={ctx.tacts} />}
-      </div>
+      </header>
       {!isRoot && d.game.status === 'draft' && <LaunchBanner ctx={ctx} />}
-      <Tabs tabs={tabs} value={current} onChange={setTab} />
       {current === 'summary' && <Summary ctx={ctx} />}
       {current === 'transfers' && <Transfers ctx={ctx} />}
       {current === 'people' && <People ctx={ctx} />}
@@ -56,7 +71,7 @@ export function GamePage({ staff }: { staff: Staff }) {
       {current === 'staff' && <StaffTab ctx={ctx} staff={staff} />}
       {current === 'branches' && <Branches ctx={ctx} />}
       {current === 'assistant' && <Assistant ctx={ctx} />}
-    </>
+    </AdminShell>
   );
 }
 

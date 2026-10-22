@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, money, newKey, useLoad } from '../api';
 import { Confirm, Money } from '../ui';
-import { BuildingIcon, CheckIcon, SearchIcon } from './icons';
+import { BuildingIcon, CheckIcon, SearchIcon } from '../icons';
 import { ScreenHeader } from './Screen';
 import { Account, PriceItem, Recipient, canSpend, initials, recipientTitle } from './types';
 
