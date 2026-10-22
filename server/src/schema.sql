@@ -183,3 +183,72 @@ create table if not exists assistant_proposal (
   transfer_id int references transfer(id),
   created_at timestamptz not null default now()
 );
+
+-- ---------- Assets and capacities (servers, venues, trucks, staff...) ----------
+
+-- Inherited config like roles. `code` is stable across root and branches, so other rows
+-- (start assets, price items) refer to an asset type by code, not by id.
+create table if not exists asset_type (
+  id serial primary key,
+  game_id int not null references game(id) on delete cascade,
+  source_id int references asset_type(id) on delete set null,
+  local_modified boolean not null default false,
+  code text not null,
+  title text not null,
+  unit text not null default 'шт.',
+  capacity_per_unit int not null default 0,
+  capacity_unit text not null default '',
+  opex_per_unit int not null default 0,
+  income_per_unit int not null default 0,
+  revenue_per_output int not null default 0,
+  cost_per_output int not null default 0,
+  ages_to text not null default '',
+  sort int not null default 0,
+  unique (game_id, code)
+);
+
+-- Start assets of a start legal entity, {asset_code: quantity}.
+alter table start_account add column if not exists assets jsonb not null default '{}';
+-- A price item may add assets to the buyer: asset_qty units of asset_code per item bought.
+alter table price_item add column if not exists asset_code text not null default '';
+alter table price_item add column if not exists asset_qty int not null default 0;
+
+-- Every change of holdings is a row; holdings = sum(delta). Hosts may add, edit and delete rows.
+create table if not exists asset_ledger (
+  id serial primary key,
+  game_id int not null references game(id) on delete cascade,
+  account_id int not null references account(id) on delete cascade,
+  asset_code text not null,
+  delta int not null,
+  tact_id int references tact(id) on delete set null,
+  reason text not null check (reason in ('start', 'purchase', 'manual', 'aging')),
+  transfer_id int references transfer(id) on delete set null,
+  comment text not null default '',
+  staff_id int references staff(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists asset_ledger_game_idx on asset_ledger (game_id, account_id);
+
+-- Output served in a tact (hours on the market, trips...), entered by the host.
+create table if not exists tact_output (
+  tact_id int not null references tact(id) on delete cascade,
+  account_id int not null references account(id) on delete cascade,
+  asset_code text not null,
+  amount int not null check (amount >= 0),
+  primary key (tact_id, account_id, asset_code)
+);
+
+-- Revenue / OPEX already posted for a tact, so the button never charges twice.
+create table if not exists tact_posting (
+  tact_id int not null references tact(id) on delete cascade,
+  account_id int not null references account(id) on delete cascade,
+  kind text not null check (kind in ('revenue', 'opex')),
+  amount bigint not null,
+  transfer_id int references transfer(id) on delete set null,
+  primary key (tact_id, account_id, kind)
+);
+
+-- Google Sheets mirror of the branch.
+alter table game add column if not exists sheet_id text not null default '';
+alter table game add column if not exists sheet_synced_at timestamptz;
+alter table game add column if not exists sheet_error text not null default '';

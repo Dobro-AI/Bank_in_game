@@ -5,11 +5,13 @@ import Anthropic from '@anthropic-ai/sdk';
 import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
+import * as assets from './assets.js';
 import * as assistant from './assistant.js';
 import { AppError, Db } from './db.js';
 import * as games from './games.js';
 import * as reports from './reports.js';
 import { AttemptLimiter, hashSecret, newToken, tokenHash, verifySecret } from './security.js';
+import * as sheets from './sheets.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
 import { hostAdjust, payFixedPrice, playerTransfer } from './transfers.js';
 
@@ -29,7 +31,10 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   };
   app.register(cookie);
   const bus = new EventEmitter().setMaxListeners(0);
-  const changed = (gameId: number) => bus.emit(`game:${gameId}`);
+  const changed = (gameId: number) => {
+    bus.emit(`game:${gameId}`);
+    sheets.scheduleSync(db, gameId);
+  };
   const codeLimiter = new AttemptLimiter(5, 60_000);
   const loginLimiter = new AttemptLimiter(10, 60_000);
 
@@ -125,7 +130,9 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   const num = (v: unknown) => (v === undefined || v === '' || v === null ? undefined : Number(v));
   const filtersOf = (q: any): reports.Filters => ({ tactId: num(q.tact), roleId: num(q.role), accountId: num(q.account) });
   const entityOf = (e: string): games.Entity => {
-    const map: Record<string, games.Entity> = { roles: 'role', 'start-accounts': 'start_account', 'price-items': 'price_item' };
+    const map: Record<string, games.Entity> = {
+      roles: 'role', 'asset-types': 'asset_type', 'start-accounts': 'start_account', 'price-items': 'price_item',
+    };
     if (!map[e]) throw new AppError('Не найдено', 404);
     return map[e];
   };
@@ -352,7 +359,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   app.get('/api/admin/games/:id', async (req) => {
     const id = Number((req.params as any).id);
     const { game, staff } = await needGame(req, id, 'view');
-    const [roles, startAccounts, priceItems, gameStaff, branches] = await Promise.all([
+    const [roles, startAccounts, priceItems, gameStaff, branches, assetTypes] = await Promise.all([
       db.query(
         `select r.*, p.id as player_id, p.first_name, p.last_name from role r
          left join player p on p.role_id = r.id where r.game_id = $1 order by r.title`, [id]),
@@ -363,9 +370,10 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
         `select g.id, g.title, g.status, coalesce(string_agg(st.name, ', '), '') as hosts from game g
          left join game_staff gs on gs.game_id = g.id left join staff st on st.id = gs.staff_id
          where g.parent_id = $1 group by g.id order by g.title`, [id]),
+      assets.assetTypes(db, id),
     ]);
     const isHost = gameStaff.some((s: any) => s.id === staff.id);
-    return { game, roles, startAccounts, priceItems, staff: gameStaff, branches,
+    return { game, roles, startAccounts, priceItems, assetTypes, staff: gameStaff, branches,
       can: { config: game.kind === 'branch' || staff.kind === 'super', run: game.kind === 'branch' && isHost, super: staff.kind === 'super' } };
   });
 
@@ -508,7 +516,9 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   app.get('/api/admin/games/:id/export.xlsx', async (req, reply) => {
     const id = Number((req.params as any).id);
     const { game } = await needGame(req, id, 'view');
-    const buf = await reports.exportXlsx(db, id, filtersOf(req.query));
+    // Capacity, revenue/OPEX and the asset journal go along with transfers and the summary.
+    const extra = (await sheets.buildSheets(db, id)).filter((x) => ['Мощности', 'Выручка и OPEX', 'Журнал активов'].includes(x.title));
+    const buf = await reports.exportXlsx(db, id, filtersOf(req.query), extra);
     reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     reply.header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(game.title)}.xlsx`);
     return reply.send(buf);
@@ -528,9 +538,94 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   app.post('/api/admin/games/:id/close-tact', async (req) => {
     const id = Number((req.params as any).id);
     await needGame(req, id, 'run');
-    const res = await reports.closeTact(db, id);
+    const res = await reports.closeTact(db, id, (tx, closed, next) => assets.ageAssets(tx, id, closed, next));
     changed(id);
     return res;
+  });
+
+  // ---------- Assets, capacities, revenue and OPEX per tact ----------
+
+  app.get('/api/admin/games/:id/capacity', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'view');
+    return assets.capacityTable(db, id, num((req.query as any).tact));
+  });
+
+  app.put('/api/admin/games/:id/capacity/output', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'run');
+    const b = req.body as any;
+    await assets.setOutput(db, id, { tactId: Number(b.tactId), accountId: Number(b.accountId), code: String(b.code), amount: b.amount });
+    changed(id);
+    return { ok: true };
+  });
+
+  app.post('/api/admin/games/:id/capacity/post', async (req) => {
+    const id = Number((req.params as any).id);
+    const { staff } = await needGame(req, id, 'run');
+    const res = await assets.postTact(db, id, staff.id, (req.body as any).kind);
+    changed(id);
+    return res;
+  });
+
+  app.get('/api/admin/games/:id/ledger', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'view');
+    return assets.ledger(db, id, num((req.query as any).account));
+  });
+
+  app.post('/api/admin/games/:id/ledger', async (req) => {
+    const id = Number((req.params as any).id);
+    const { staff } = await needGame(req, id, 'run');
+    const b = req.body as any;
+    const row = await assets.addLedger(db, id, staff.id, { accountId: Number(b.accountId), code: String(b.code ?? ''), delta: b.delta, comment: b.comment });
+    changed(id);
+    return row;
+  });
+
+  app.patch('/api/admin/games/:id/ledger/:lid', async (req) => {
+    const { id, lid } = req.params as any;
+    await needGame(req, Number(id), 'run');
+    await assets.updateLedger(db, Number(id), Number(lid), req.body as any);
+    changed(Number(id));
+    return { ok: true };
+  });
+
+  app.delete('/api/admin/games/:id/ledger/:lid', async (req) => {
+    const { id, lid } = req.params as any;
+    await needGame(req, Number(id), 'run');
+    await assets.deleteLedger(db, Number(id), Number(lid));
+    changed(Number(id));
+    return { ok: true };
+  });
+
+  // ---------- Google Sheets mirror ----------
+
+  async function sheetStatus(id: number) {
+    const [g] = await db.query('select sheet_id, sheet_synced_at, sheet_error from game where id = $1', [id]);
+    return { sheetId: g.sheet_id, syncedAt: g.sheet_synced_at, error: g.sheet_error, serviceEmail: sheets.serviceEmail() };
+  }
+
+  app.get('/api/admin/games/:id/sheet', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'view');
+    return sheetStatus(id);
+  });
+
+  app.put('/api/admin/games/:id/sheet', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'config');
+    const sheetId = sheets.parseSheetId((req.body as any).sheet);
+    await db.query("update game set sheet_id = $2, sheet_error = '', sheet_synced_at = null where id = $1", [id, sheetId]);
+    if (sheetId) await sheets.syncNow(db, id).catch(() => {});
+    return sheetStatus(id);
+  });
+
+  app.post('/api/admin/games/:id/sheet/sync', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'view');
+    await sheets.syncNow(db, id).catch(() => {});
+    return sheetStatus(id);
   });
 
   app.patch('/api/admin/games/:id/rules', async (req) => {

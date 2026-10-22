@@ -48,6 +48,35 @@ DATABASE_URL=postgres://... SUPER_LOGIN=... SUPER_PASSWORD=... SECURE_COOKIES=1 
 | `ANTHROPIC_API_KEY` | ключ Claude API для ИИ-помощника ведущего |
 | `OPENAI_API_KEY` | необязательно: расшифровка загруженных и записанных голосовых (Claude не принимает аудио); без ключа работает только диктовка в браузере |
 | `STT_MODEL` | модель расшифровки, по умолчанию `whisper-1` |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | ключ технического аккаунта Google (содержимое JSON-файла) для живой Google-таблицы; или путь к файлу в `GOOGLE_SERVICE_ACCOUNT_FILE` |
+
+## Готовые игры
+
+В банк заведены две игры из материалов организаторов: «Развлечения: офлайн против онлайна» и «Еврологистика — глядя в будущее».
+Списки ролей, стартовые счета, активы, OPEX за такт и прайс Игротехника (CAPEX) — в [docs/games/razvlecheniya.md](docs/games/razvlecheniya.md)
+и [docs/games/evrologistika.md](docs/games/evrologistika.md). Данные — в `server/src/seeds/games-data.ts`.
+
+```bash
+npm run seed:games                    # создать обе игры (уже созданные пропускаются)
+npm run seed:games -- --branch host   # плюс запущенное ответвление каждой игры для ведущего с логином host
+npm run seed:games -- --docs ../docs/games   # пересобрать документы после правки данных
+```
+
+## Google-таблица: подключение
+
+Банк сам пишет в Google-таблицу: листы «Переводы», «Сводка», «Мощности», «Выручка и OPEX», «Журнал активов» обновляются через несколько секунд после каждой операции. Таблица — зеркало: источник данных — банк.
+
+Один раз для сервера:
+1. Откройте [console.cloud.google.com](https://console.cloud.google.com), создайте проект.
+2. «APIs & Services» → «Library» → включите **Google Sheets API**.
+3. «IAM & Admin» → «Service Accounts» → «Create service account» (роль не нужна).
+4. В созданном аккаунте: «Keys» → «Add key» → «JSON». Скачается файл.
+5. Положите содержимое файла в переменную `GOOGLE_SERVICE_ACCOUNT_JSON` на сервере (или путь к файлу в `GOOGLE_SERVICE_ACCOUNT_FILE`) и перезапустите сервер.
+
+Для каждой игры (ведущий, в кабинете → «Google-таблица»):
+1. Создайте пустую Google-таблицу.
+2. «Настройки доступа» → добавьте e-mail технического аккаунта (показан в кабинете) с правом «Редактор».
+3. Вставьте ссылку на таблицу и нажмите «Подключить». Таблица появится прямо в кабинете.
 
 ## Как устроено
 

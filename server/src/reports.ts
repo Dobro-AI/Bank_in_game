@@ -142,7 +142,11 @@ export function totalsByOwner(rows: any[], members: Map<number, any[]>) {
   return [...totals].map(([owner, total]) => ({ owner, total })).sort((a, b) => b.total - a.total);
 }
 
-export async function closeTact(db: Db, gameId: number) {
+export async function closeTact(
+  db: Db,
+  gameId: number,
+  onNextTact?: (tx: Tx, closed: any, next: any) => Promise<void>,
+) {
   return db.transaction(async (tx) => {
     const [open] = await tx.query('select * from tact where game_id = $1 and closed_at is null for update', [gameId]);
     if (!open) throw new AppError('Нет открытого такта');
@@ -157,11 +161,12 @@ export async function closeTact(db: Db, gameId: number) {
     }
     await tx.query('update tact set closed_at = now() where id = $1', [open.id]);
     const [next] = await tx.query('insert into tact (game_id, number) values ($1, $2) returning *', [gameId, open.number + 1]);
+    if (onNextTact) await onNextTact(tx, open, next);
     return { closed: open, next };
   });
 }
 
-export async function exportXlsx(db: Db, gameId: number, f: Filters) {
+export async function exportXlsx(db: Db, gameId: number, f: Filters, extra: { title: string; rows: (string | number)[][] }[] = []) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Переводы');
   ws.columns = [
@@ -192,6 +197,11 @@ export async function exportXlsx(db: Db, gameId: number, f: Filters) {
   ];
   for (const r of filterSummary(rows, f)) ss.addRow(r);
   for (const s of [ws, ss]) s.getRow(1).font = { bold: true };
+  for (const sheet of extra) {
+    const x = wb.addWorksheet(sheet.title);
+    for (const r of sheet.rows) x.addRow(r);
+    x.columns.forEach((c) => { c.width = 22; });
+  }
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 

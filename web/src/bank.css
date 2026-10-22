@@ -225,3 +225,16 @@ a.settings-row:hover, button.settings-row:hover { background: #fcfcfc; }
 .bank .proposal { border: 2px solid var(--text); }
 .bank .cell-input { border-radius: 8px; }
 .bank h2 { font-size: 20px; }
+.asset-inputs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 4px 8px; min-width: 220px; }
+.asset-input { display: flex; flex-direction: column; gap: 2px; }
+.asset-input .cell-input { width: 100%; }
+.stat { display: flex; flex-direction: column; justify-content: flex-end; background: var(--surface); border-radius: 12px; padding: 8px 12px; min-height: 44px; }
+.nowrap { white-space: nowrap; }
+.output-input { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; min-width: 120px; }
+.output-input .cell-input { width: 96px; }
+.cell-input.over { border-color: #b91c1c; }
+.ledger-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: end; margin: 12px 0; }
+.segmented.two { grid-template-columns: 1fr 1fr; flex: 1; }
+.sheet-frame { width: 100%; height: 70vh; border: none; border-radius: 16px; background: var(--surface); }
+/* Text cells in config tables (titles, units) must stay readable when the table is wide. */
+.bank td > input.cell-input:not([inputmode]) { min-width: 160px; }

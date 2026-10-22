@@ -1,25 +1,29 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, newKey, useLive, useLoad } from '../api';
-import { AdjustIcon, BadgeIcon, BranchIcon, ChartIcon, FlagIcon, GearIcon, SparkIcon, TransferIcon, UsersIcon } from '../icons';
+import { AdjustIcon, BadgeIcon, BoxIcon, BranchIcon, ChartIcon, FlagIcon, GearIcon, SparkIcon, TableIcon, TransferIcon, UsersIcon } from '../icons';
 import { Confirm, Empty, ErrorText, Field, Money } from '../ui';
 import type { Staff } from './AdminApp';
 import { Assistant } from './Assistant';
+import { Capacity } from './Capacity';
 import { Config } from './Config';
 import { AdminShell, NavItem } from './Shell';
+import { Sheet } from './Sheet';
 
 export interface GameData {
-  game: any; roles: any[]; startAccounts: any[]; priceItems: any[]; staff: Staff[]; branches: any[];
+  game: any; roles: any[]; startAccounts: any[]; priceItems: any[]; assetTypes: any[]; staff: Staff[]; branches: any[];
   can: { config: boolean; run: boolean; super: boolean };
 }
 
-type Section = 'summary' | 'transfers' | 'people' | 'adjust' | 'tacts' | 'config' | 'staff' | 'branches' | 'assistant';
+type Section = 'summary' | 'transfers' | 'people' | 'adjust' | 'capacity' | 'tacts' | 'sheet' | 'config' | 'staff' | 'branches' | 'assistant';
 
 const SECTIONS: Record<Section, { label: string; icon: ReactNode }> = {
   summary: { label: 'Сводка', icon: <ChartIcon /> },
   transfers: { label: 'Переводы', icon: <TransferIcon /> },
   people: { label: 'Участники', icon: <UsersIcon /> },
   adjust: { label: 'Начисления', icon: <AdjustIcon /> },
+  capacity: { label: 'Мощности', icon: <BoxIcon /> },
+  sheet: { label: 'Google-таблица', icon: <TableIcon /> },
   tacts: { label: 'Такты', icon: <FlagIcon /> },
   assistant: { label: 'Помощник', icon: <SparkIcon /> },
   config: { label: 'Настройки', icon: <GearIcon /> },
@@ -42,7 +46,7 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
   const isRoot = d.game.kind === 'root';
   const sections: Section[] = isRoot
     ? ['config', 'branches', 'assistant']
-    : ['summary', 'transfers', 'people', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'assistant', 'config', 'staff'];
+    : ['summary', 'transfers', 'capacity', 'people', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'sheet', 'assistant', 'config', 'staff'];
   const current = sections.includes(params.section as Section) ? (params.section as Section) : sections[0];
   const ctx = { id, d, accounts: accounts.data ?? [], tacts: tacts.data ?? [], tick, reload: () => { data.reload(); accounts.reload(); tacts.reload(); } };
   const items: NavItem[] = sections.map((k, i) => ({
@@ -66,6 +70,8 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
       {current === 'transfers' && <Transfers ctx={ctx} />}
       {current === 'people' && <People ctx={ctx} />}
       {current === 'adjust' && <Adjust ctx={ctx} />}
+      {current === 'capacity' && <Capacity ctx={ctx} />}
+      {current === 'sheet' && <Sheet ctx={ctx} />}
       {current === 'tacts' && <Tacts ctx={ctx} />}
       {current === 'config' && <Config ctx={ctx} />}
       {current === 'staff' && <StaffTab ctx={ctx} staff={staff} />}

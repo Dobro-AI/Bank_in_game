@@ -3,7 +3,7 @@ import { api } from '../api';
 import { ErrorText } from '../ui';
 import type { Ctx } from './GamePage';
 
-type Kind = 'text' | 'number' | 'pin' | 'role' | 'roles' | 'bool';
+type Kind = 'text' | 'number' | 'pin' | 'role' | 'roles' | 'bool' | 'asset' | 'assets' | 'ages';
 interface Spec { key: string; label: string; kind: Kind }
 
 const ROLE_FIELDS: Spec[] = [
@@ -19,11 +19,26 @@ const ACCOUNT_FIELDS: Spec[] = [
   { key: 'coowner_role_ids', label: 'Совладельцы', kind: 'roles' },
   { key: 'start_balance', label: 'Стартовый баланс', kind: 'number' },
   { key: 'pin', label: 'PIN', kind: 'pin' },
+  { key: 'assets', label: 'Стартовые активы', kind: 'assets' },
+];
+const ASSET_FIELDS: Spec[] = [
+  { key: 'title', label: 'Актив', kind: 'text' },
+  { key: 'unit', label: 'Ед.', kind: 'text' },
+  { key: 'capacity_per_unit', label: 'Мощность за ед.', kind: 'number' },
+  { key: 'capacity_unit', label: 'Ед. мощности', kind: 'text' },
+  { key: 'revenue_per_output', label: 'Выручка за ед. мощности', kind: 'number' },
+  { key: 'cost_per_output', label: 'Затраты за ед. мощности', kind: 'number' },
+  { key: 'opex_per_unit', label: 'OPEX за такт', kind: 'number' },
+  { key: 'income_per_unit', label: 'Доход за такт', kind: 'number' },
+  { key: 'ages_to', label: 'В новом такте', kind: 'ages' },
+  { key: 'sort', label: 'Порядок', kind: 'number' },
 ];
 const PRICE_FIELDS: Spec[] = [
   { key: 'title', label: 'Позиция', kind: 'text' },
   { key: 'price', label: 'Цена', kind: 'number' },
   { key: 'active', label: 'Активна', kind: 'bool' },
+  { key: 'asset_code', label: 'Даёт актив', kind: 'asset' },
+  { key: 'asset_qty', label: 'Ед. актива за шт.', kind: 'number' },
 ];
 
 export function Config({ ctx }: { ctx: Ctx }) {
@@ -40,9 +55,11 @@ export function Config({ ctx }: { ctx: Ctx }) {
       )}
       <Rules ctx={ctx} />
       <Editor ctx={ctx} title="Роли" slug="roles" fields={ROLE_FIELDS} rows={d.roles} />
+      <Editor ctx={ctx} title="Активы и мощности" slug="asset-types" fields={ASSET_FIELDS} rows={d.assetTypes}
+        hint="Серверы, площадки, грузовики, сотрудники. Мощность за ед. — сколько часов или рейсов даёт одна единица. OPEX списывается за каждую единицу в конце такта, затраты за ед. мощности — за каждый обслуженный час или рейс. «В новом такте» — во что актив превращается при завершении такта (грузовик стареет) или исчезает." />
       <Editor ctx={ctx} title="Стартовые юрлица" slug="start-accounts" fields={ACCOUNT_FIELDS} rows={d.startAccounts} />
-      <Editor ctx={ctx} title="Прайс фиксированных платежей" slug="price-items" fields={PRICE_FIELDS} rows={d.priceItems}
-        hint="Игрок оплачивает позицию игротехнику; цена подставляется сама, баланс может уйти в минус." />
+      <Editor ctx={ctx} title="Прайс игротехника (CAPEX)" slug="price-items" fields={PRICE_FIELDS} rows={d.priceItems}
+        hint="Заготовки при переводе Игротехнику: что покупают, за сколько и в каком количестве. Если позиция даёт актив, он сам добавляется покупателю в учёт мощностей." />
     </div>
   );
 }
@@ -83,7 +100,7 @@ function Rules({ ctx }: { ctx: Ctx }) {
 }
 
 const blank = (fields: Spec[]) =>
-  Object.fromEntries(fields.map((f) => [f.key, f.kind === 'number' ? 0 : f.kind === 'roles' ? [] : f.kind === 'bool' ? true : f.kind === 'role' ? null : '']));
+  Object.fromEntries(fields.map((f) => [f.key, f.kind === 'number' ? 0 : f.kind === 'roles' ? [] : f.kind === 'bool' ? true : f.kind === 'role' ? null : f.kind === 'assets' ? {} : '']));
 
 function Editor({ ctx, title, slug, fields, rows, hint }: { ctx: Ctx; title: string; slug: string; fields: Spec[]; rows: any[]; hint?: string }) {
   const [draft, setDraft] = useState<any>(blank(fields));
@@ -166,7 +183,12 @@ function Row({ ctx, slug, fields, row }: { ctx: Ctx; slug: string; fields: Spec[
 
 const roleName = (ctx: Ctx, id: number) => ctx.d.roles.find((r) => r.id === id)?.title ?? '—';
 
+const assetName = (ctx: Ctx, code: string) => ctx.d.assetTypes.find((a) => a.code === code)?.title ?? code;
+
 function display(ctx: Ctx, f: Spec, value: any) {
+  if (f.kind === 'asset') return value ? assetName(ctx, value) : '—';
+  if (f.kind === 'ages') return value === 'expire' ? 'исчезает' : value ? assetName(ctx, value) : 'остаётся';
+  if (f.kind === 'assets') return Object.entries(value ?? {}).map(([c, q]) => `${assetName(ctx, c)}: ${q}`).join(', ');
   if (f.kind === 'role') return value ? roleName(ctx, value) : '—';
   if (f.kind === 'roles') return (value ?? []).map((id: number) => roleName(ctx, id)).join(', ');
   if (f.kind === 'bool') return value ? 'да' : 'нет';
@@ -184,6 +206,34 @@ function Input({ ctx, spec, value, onChange }: { ctx: Ctx; spec: Spec; value: an
         onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))} />;
     case 'bool':
       return <input type="checkbox" aria-label={label} checked={!!value} onChange={(e) => onChange(e.target.checked)} />;
+    case 'asset':
+      return (
+        <select className="cell-input" aria-label={label} value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+          <option value="">—</option>
+          {ctx.d.assetTypes.map((a) => <option key={a.code} value={a.code}>{a.title}</option>)}
+        </select>
+      );
+    case 'ages':
+      return (
+        <select className="cell-input" aria-label={label} value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+          <option value="">остаётся</option>
+          <option value="expire">исчезает</option>
+          {ctx.d.assetTypes.map((a) => <option key={a.code} value={a.code}>→ {a.title}</option>)}
+        </select>
+      );
+    case 'assets':
+      return (
+        <div className="asset-inputs">
+          {ctx.d.assetTypes.length === 0 && <span className="muted tiny">Сначала добавьте активы</span>}
+          {ctx.d.assetTypes.map((a) => (
+            <label key={a.code} className="asset-input">
+              <span className="tiny">{a.title}</span>
+              <input className="cell-input" inputMode="numeric" value={value?.[a.code] ?? ''} placeholder="0"
+                onChange={(e) => onChange({ ...(value ?? {}), [a.code]: Number(e.target.value.replace(/\D/g, '')) || 0 })} />
+            </label>
+          ))}
+        </div>
+      );
     case 'role':
       return (
         <select className="cell-input" aria-label={label} value={value ?? ''} onChange={(e) => onChange(Number(e.target.value) || null)}>

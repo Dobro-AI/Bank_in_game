@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AppError, Db } from './db.js';
 import { KIND_LABEL, listTransfers, membersByAccount, ownersText, summary, tacts as listTacts, totalsByOwner } from './reports.js';
-import { hostAdjust, transfer } from './transfers.js';
+import { hostAdjust, recordPurchase, transfer } from './transfers.js';
 
 type Msg = Anthropic.Beta.BetaMessageParam;
 type Tool = Anthropic.Beta.BetaTool;
@@ -382,7 +382,7 @@ export async function confirmProposal(db: Db, proposalId: number, staffId: numbe
     res = await transfer(db, {
       gameId: p.game_id, kind: 'fixed_price', fromAccountId: i.account_id, toAccountId: host.id, amount: i.amount,
       priceItemId: i.price_item_id, comment: i.comment, initiatorStaffId: staffId, idempotencyKey: key, allowNegative: true,
-    });
+    }, undefined, (tx, row) => recordPurchase(tx, row, i.price_item_id, 1));
   } else {
     res = await hostAdjust(db, p.game_id, staffId, {
       accountId: i.account_id, direction: p.kind === 'host_credit' ? 'credit' : 'debit', amount: i.amount, comment: i.comment, idempotencyKey: key,

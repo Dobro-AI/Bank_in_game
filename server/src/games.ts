@@ -2,13 +2,16 @@ import { AppError, Db, Tx } from './db.js';
 import { hashSecret, isFourDigits, newRoleCode, verifySecret } from './security.js';
 import { hostAccountId, transferTx } from './transfers.js';
 
-export type Entity = 'role' | 'start_account' | 'price_item';
-export const ENTITIES: Entity[] = ['role', 'start_account', 'price_item'];
+export type Entity = 'role' | 'asset_type' | 'start_account' | 'price_item';
+// Order matters when copying a game: start accounts reference roles and asset codes.
+export const ENTITIES: Entity[] = ['role', 'asset_type', 'start_account', 'price_item'];
 
 const FIELDS: Record<Entity, string[]> = {
   role: ['title', 'description', 'start_balance', 'preset_first_name', 'preset_last_name'],
-  start_account: ['title', 'owner_role_id', 'coowner_role_ids', 'start_balance', 'pin'],
-  price_item: ['title', 'price', 'active'],
+  asset_type: ['title', 'unit', 'capacity_per_unit', 'capacity_unit', 'opex_per_unit', 'income_per_unit',
+    'revenue_per_output', 'cost_per_output', 'ages_to', 'sort'],
+  start_account: ['title', 'owner_role_id', 'coowner_role_ids', 'start_balance', 'pin', 'assets'],
+  price_item: ['title', 'price', 'active', 'asset_code', 'asset_qty'],
 };
 
 const nonNegInt = (v: unknown, label: string) => {
@@ -56,10 +59,49 @@ async function clean(tx: Tx, entity: Entity, gameId: number, data: any, partial:
       case 'coowner_role_ids':
         out.coowner_role_ids = Array.isArray(v) ? [...new Set(v.map(Number))] : [];
         break;
+      case 'unit':
+        out.unit = text(v, 20) || 'шт.';
+        break;
+      case 'capacity_unit':
+        out.capacity_unit = text(v, 30);
+        break;
+      case 'capacity_per_unit':
+      case 'opex_per_unit':
+      case 'income_per_unit':
+      case 'revenue_per_output':
+      case 'cost_per_output':
+      case 'asset_qty':
+        out[f] = nonNegInt(v, 'Число');
+        break;
+      case 'sort':
+        out.sort = Number.isSafeInteger(Number(v)) ? Number(v) : 0;
+        break;
+      case 'ages_to':
+      case 'asset_code':
+        out[f] = text(v, 40);
+        break;
+      case 'assets': {
+        const obj: Record<string, number> = {};
+        for (const [code, qty] of Object.entries(v && typeof v === 'object' ? v : {})) {
+          const n = nonNegInt(qty, 'Количество актива');
+          if (n > 0) obj[code] = n;
+        }
+        out.assets = obj;
+        break;
+      }
     }
   }
   if (!partial && !('title' in out)) throw new AppError('Укажите название');
   if (entity === 'price_item' && !partial && !('price' in out)) throw new AppError('Укажите цену');
+  const codes = [
+    ...Object.keys((out.assets as object) ?? {}),
+    ...(out.asset_code ? [out.asset_code] : []),
+    ...(out.ages_to && out.ages_to !== 'expire' ? [out.ages_to] : []),
+  ] as string[];
+  if (codes.length) {
+    const found = await tx.query('select code from asset_type where game_id = $1 and code = any($2::text[])', [gameId, codes]);
+    if (found.length !== new Set(codes).size) throw new AppError('Такого актива нет в игре');
+  }
   if (entity === 'start_account') {
     const ids = [out.owner_role_id, ...((out.coowner_role_ids as number[]) ?? [])].filter(Boolean) as number[];
     if (ids.length) {
@@ -91,13 +133,25 @@ function mapRoleRefs(values: Record<string, unknown>, map: Map<number, number>) 
   return v;
 }
 
+/** jsonb columns get JSON text; int[] columns stay arrays. */
+const sqlValue = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : v);
+
+async function newAssetCode(tx: Tx, gameId: number) {
+  for (;;) {
+    const code = `a${Math.random().toString(36).slice(2, 8)}`;
+    const [taken] = await tx.query('select 1 from asset_type where game_id = $1 and code = $2', [gameId, code]);
+    if (!taken) return code;
+  }
+}
+
 async function insertRow(tx: Tx, entity: Entity, gameId: number, values: Record<string, unknown>, sourceId: number | null) {
   const v: Record<string, unknown> = { ...values, game_id: gameId, source_id: sourceId };
   if (entity === 'role') v.code = newRoleCode();
+  if (entity === 'asset_type' && !v.code) v.code = await newAssetCode(tx, gameId);
   const cols = Object.keys(v);
   const [row] = await tx.query(
     `insert into ${entity} (${cols.join(',')}) values (${cols.map((_, i) => `$${i + 1}`).join(',')}) returning *`,
-    cols.map((c) => v[c]),
+    cols.map((c) => sqlValue(v[c])),
   );
   return row;
 }
@@ -107,7 +161,7 @@ async function updateById(tx: Tx, entity: Entity, id: number, values: Record<str
   if (!cols.length) return;
   await tx.query(
     `update ${entity} set ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')} where id = $1`,
-    [id, ...cols.map((c) => values[c])],
+    [id, ...cols.map((c) => sqlValue(values[c]))],
   );
 }
 
@@ -130,7 +184,8 @@ export async function createBranch(db: Db, rootId: number, title: string, staffI
     for (const entity of ENTITIES) {
       const map = entity === 'start_account' ? await roleMap(tx, b.id) : null;
       for (const r of await tx.query(`select * from ${entity} where game_id = $1 order by id`, [rootId])) {
-        const values = Object.fromEntries(FIELDS[entity].map((f) => [f, r[f]]));
+        const values: Record<string, unknown> = Object.fromEntries(FIELDS[entity].map((f) => [f, r[f]]));
+        if (entity === 'asset_type') values.code = r.code;
         await insertRow(tx, entity, b.id, map ? mapRoleRefs(values, map) : values, r.id);
       }
     }
@@ -153,7 +208,8 @@ export async function createRow(db: Db, entity: Entity, gameId: number, data: an
     for (const b of targets) {
       let copy = row;
       if (b.id !== gameId) {
-        const v = entity === 'start_account' ? mapRoleRefs(values, await roleMap(tx, b.id)) : values;
+        const v = entity === 'start_account' ? mapRoleRefs(values, await roleMap(tx, b.id))
+          : entity === 'asset_type' ? { ...values, code: row.code } : values;
         copy = await insertRow(tx, entity, b.id, v, row.id);
       }
       if (entity === 'start_account' && b.status === 'active') await openStartAccount(tx, b.id, copy);
@@ -242,6 +298,15 @@ async function openStartAccount(tx: Tx, gameId: number, sa: any) {
     );
   }
   await tx.query("insert into account_event (account_id, type, actor) values ($1, 'created', 'ведущий')", [acc.id]);
+  const [tact] = await tx.query('select id from tact where game_id = $1 and closed_at is null', [gameId]);
+  for (const [code, qty] of Object.entries((sa.assets ?? {}) as Record<string, number>)) {
+    if (qty > 0) {
+      await tx.query(
+        "insert into asset_ledger (game_id, account_id, asset_code, delta, tact_id, reason, comment) values ($1, $2, $3, $4, $5, 'start', 'Стартовые активы')",
+        [gameId, acc.id, code, qty, tact?.id ?? null],
+      );
+    }
+  }
   if (sa.start_balance > 0) {
     await transferTx(tx, {
       gameId, kind: 'initial', fromAccountId: await hostAccountId(tx, gameId), toAccountId: acc.id,

@@ -1,13 +1,17 @@
 {
   "name": "bank-in-game",
   "private": true,
-  "workspaces": ["server", "web"],
+  "workspaces": [
+    "server",
+    "web"
+  ],
   "scripts": {
     "dev": "concurrently -n server,web \"npm -w server run dev\" \"npm -w web run dev\"",
     "build": "npm -w web run build && npm -w server run build",
     "start": "npm -w server run start",
     "test": "npm -w server test",
-    "seed:demo": "npm -w server run seed:demo"
+    "seed:demo": "npm -w server run seed:demo",
+    "seed:games": "npm -w server run seed:games --"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"

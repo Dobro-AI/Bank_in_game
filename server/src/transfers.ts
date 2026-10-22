@@ -68,7 +68,12 @@ export async function transferTx(tx: Tx, t: TransferInput) {
  * Runs a transfer in its own transaction. A repeated idempotency key (double tap, retry
  * after a dropped connection) returns the original transfer instead of charging again.
  */
-export async function transfer(db: Db, t: TransferInput, check?: (tx: Tx) => Promise<void>) {
+export async function transfer(
+  db: Db,
+  t: TransferInput,
+  check?: (tx: Tx) => Promise<void>,
+  after?: (tx: Tx, row: any) => Promise<void>,
+) {
   const key = t.idempotencyKey || null;
   if (key) {
     const [existing] = await db.query('select * from transfer where idempotency_key = $1', [key]);
@@ -77,7 +82,9 @@ export async function transfer(db: Db, t: TransferInput, check?: (tx: Tx) => Pro
   try {
     const row = await db.transaction(async (tx) => {
       if (check) await check(tx);
-      return transferTx(tx, t);
+      const row = await transferTx(tx, t);
+      if (after) await after(tx, row);
+      return row;
     });
     return { transfer: row, duplicate: false };
   } catch (e) {
@@ -91,6 +98,18 @@ export async function transfer(db: Db, t: TransferInput, check?: (tx: Tx) => Pro
 
 /** Client keys are namespaced per initiator so one user can never replay another's key. */
 const scopedKey = (scope: string, key?: string) => (key ? `${scope}:${String(key).slice(0, 100)}` : null);
+
+/** A price item bought from the game master may add assets (servers, venues...) to the buyer. */
+export async function recordPurchase(tx: Tx, row: { id: number; game_id: number; from_account_id: number; tact_id: number }, priceItemId: number, quantity: number) {
+  const [item] = await tx.query('select title, asset_code, asset_qty from price_item where id = $1', [priceItemId]);
+  if (!item?.asset_code || !item.asset_qty) return;
+  await tx.query(
+    `insert into asset_ledger (game_id, account_id, asset_code, delta, tact_id, reason, transfer_id, comment)
+     values ($1, $2, $3, $4, $5, 'purchase', $6, $7)`,
+    [row.game_id, row.from_account_id, item.asset_code, item.asset_qty * quantity, row.tact_id, row.id,
+      quantity > 1 ? `${item.title} × ${quantity}` : item.title],
+  );
+}
 
 export async function hostAccountId(tx: Tx, gameId: number): Promise<number> {
   const [a] = await tx.query("select id from account where game_id = $1 and kind = 'host'", [gameId]);
@@ -170,6 +189,7 @@ export async function payFixedPrice(
       allowNegative: true,
     },
     (tx) => assertCanSpend(tx, p.roleId, body.fromAccountId),
+    (tx, row) => recordPurchase(tx, row, item.id, quantity),
   );
 }
 
