@@ -635,7 +635,11 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     await needGame(req, id, 'config');
     const sheetId = sheets.parseSheetId((req.body as any).sheet);
     await db.query("update game set sheet_id = $2, sheet_error = '', sheet_synced_at = null where id = $1", [id, sheetId]);
-    if (sheetId) await sheets.syncNow(db, id).catch(() => {});
+    if (sheetId) {
+      // Tidy up: move the sheet into the game's subfolder; a failure here never blocks the sync.
+      await sheets.placeInFolder(db, id).catch((e) => console.error('drive place', e?.response?.data?.error?.message ?? e));
+      await sheets.syncNow(db, id).catch(() => {});
+    }
     return sheetStatus(id);
   });
 

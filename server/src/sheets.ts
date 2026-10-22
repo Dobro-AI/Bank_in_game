@@ -76,6 +76,40 @@ async function ensureFolder(name: string, parent: string) {
 
 const folderUrl = (id: string) => `https://drive.google.com/drive/folders/${id}`;
 
+async function gameNames(db: Db, gameId: number) {
+  const [g] = await db.query(
+    `select b.title, b.sheet_id, r.title as root_title,
+            coalesce((select string_agg(s.name, ', ') from game_staff gs join staff s on s.id = gs.staff_id where gs.game_id = b.id), '') as hosts
+     from game b left join game r on r.id = b.parent_id where b.id = $1`,
+    [gameId],
+  );
+  if (!g) throw new AppError('Игра не найдена', 404);
+  return { ...g, folderName: (g.root_title ?? g.title) as string, sheetName: (g.hosts ? `${g.title} — ${g.hosts}` : g.title) as string };
+}
+
+/**
+ * Files the connected spreadsheet under base folder / <root game> and gives it the standard name.
+ * The host keeps owning the file (it uses their Drive storage); the bank only moves it.
+ */
+export async function placeInFolder(db: Db, gameId: number) {
+  const base = await getSetting(db, 'drive_folder_id');
+  const g = await gameNames(db, gameId);
+  if (!base || !g.sheet_id) return;
+  const folder = await ensureFolder(g.folderName, base);
+  await db.query('update game set drive_folder_id = $2 where id = $1', [gameId, folder]);
+  const api = google();
+  const file = await api.request<{ parents?: string[] }>({ url: `${DRIVE}/${g.sheet_id}`, params: { fields: 'parents', supportsAllDrives: true } });
+  // Parents are visible only inside folders shared with the bank; a sheet elsewhere (e.g. the host's
+  // My Drive root) cannot be moved by an editor, so it is only renamed and stays where it is.
+  const parents = file.data.parents ?? [];
+  const move = parents.length > 0 && !parents.includes(folder);
+  await api.request({
+    url: `${DRIVE}/${g.sheet_id}`, method: 'PATCH',
+    params: { supportsAllDrives: true, ...(move ? { addParents: folder, removeParents: parents.join(',') } : {}) },
+    data: { name: g.sheetName },
+  });
+}
+
 /**
  * Creates the branch's spreadsheet in base folder / <root game title>, connects it and fills it.
  * A service account has no Drive storage of its own, so Google may refuse to create the file in a
@@ -84,17 +118,11 @@ const folderUrl = (id: string) => `https://drive.google.com/drive/folders/${id}`
 export async function createInFolder(db: Db, gameId: number) {
   const base = await getSetting(db, 'drive_folder_id');
   if (!base) throw new AppError('Папка Google Диска для таблиц не задана (раздел «Google-таблица», делает Супер-ведущий)');
-  const [g] = await db.query(
-    `select b.title, b.sheet_id, r.title as root_title,
-            coalesce((select string_agg(s.name, ', ') from game_staff gs join staff s on s.id = gs.staff_id where gs.game_id = b.id), '') as hosts
-     from game b left join game r on r.id = b.parent_id where b.id = $1`,
-    [gameId],
-  );
-  if (!g) throw new AppError('Игра не найдена', 404);
+  const g = await gameNames(db, gameId);
   if (g.sheet_id) throw new AppError('Таблица уже подключена');
   let folder: string;
   try {
-    folder = await ensureFolder(g.root_title ?? g.title, base);
+    folder = await ensureFolder(g.folderName, base);
   } catch (e: any) {
     const reason = e?.response?.data?.error?.details?.find((d: any) => d.reason)?.reason;
     throw new AppError(reason === 'SERVICE_DISABLED'
@@ -104,7 +132,7 @@ export async function createInFolder(db: Db, gameId: number) {
         : 'Не удалось создать подпапку на Google Диске', 502);
   }
   await db.query('update game set drive_folder_id = $2 where id = $1', [gameId, folder]);
-  const name = g.hosts ? `${g.title} — ${g.hosts}` : g.title;
+  const name = g.sheetName;
   try {
     const sheet = await google().request<{ id: string }>({
       url: DRIVE, method: 'POST', params: { supportsAllDrives: true },
@@ -114,8 +142,8 @@ export async function createInFolder(db: Db, gameId: number) {
   } catch (e: any) {
     console.error('drive create sheet', e?.response?.data?.error?.message ?? e);
     throw new AppError(
-      `Подпапка «${g.root_title ?? g.title}» создана, но Google не разрешает техническому аккаунту создавать в ней таблицы. ` +
-      `Создайте таблицу в подпапке сами (${folderUrl(folder)}) и вставьте ссылку ниже.`, 502);
+      `Подпапка «${g.folderName}» готова, но Google не даёт техническому аккаунту создавать таблицы в личном Диске. ` +
+      `Создайте таблицу в подпапке сами: ${folderUrl(folder)} (доступ для банка откроется автоматически) и вставьте ссылку ниже.`, 502);
   }
   await syncNow(db, gameId).catch(() => {});
   return { folderUrl: folderUrl(folder) };

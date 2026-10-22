@@ -52,8 +52,8 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
       {ctx.d.can.super && <BaseFolder current={s.baseFolderId} onSaved={status.reload} />}
       {!s.sheetId && s.baseFolderId && ctx.d.can.config && ctx.d.game.kind === 'branch' && (
         <div className="panel row between">
-          <span className="small">Банк создаст таблицу в общей папке, в подпапке этой игры, и сразу её заполнит.</span>
-          <button className="btn primary" disabled={busy} onClick={create}>{busy ? 'Создаём…' : 'Создать таблицу в папке'}</button>
+          <span className="small">Банк создаст подпапку этой игры в общей папке. В личном Google Диске таблицу в ней создаёте вы — доступ для банка откроется сам, останется вставить ссылку.</span>
+          <button className="btn primary" disabled={busy} onClick={create}>{busy ? 'Создаём…' : 'Создать подпапку игры'}</button>
         </div>
       )}
       {s.gameFolderId && (
@@ -61,8 +61,8 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
       )}
       <form className="panel stack" onSubmit={save}>
         <p className="small" style={{ margin: 0 }}>
-          1. Создайте пустую Google-таблицу. 2. Нажмите «Настройки доступа» и откройте её для
-          {' '}<strong>{s.serviceEmail ?? 'технического аккаунта'}</strong> с правом «Редактор». 3. Вставьте ссылку сюда.
+          1. Создайте пустую Google-таблицу (в подпапке игры доступ откроется сам). 2. Если таблица в другом месте — «Настройки доступа» → добавьте
+          {' '}<strong>{s.serviceEmail ?? 'технического аккаунта'}</strong> с правом «Редактор». 3. Вставьте ссылку сюда — банк переложит таблицу в подпапку игры.
           Банк сам заполнит листы «Переводы», «Сводка», «Мощности», «Выручка и OPEX», «Журнал активов» и будет обновлять их через несколько секунд после каждой операции.
         </p>
         <Field label="Ссылка на Google-таблицу">
