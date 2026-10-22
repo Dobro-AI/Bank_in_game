@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { JWT } from 'google-auth-library';
+import { JWT, OAuth2Client } from 'google-auth-library';
 import * as assets from './assets.js';
 import { AppError, Db } from './db.js';
+import { userClient } from './google-user.js';
 import { KIND_LABEL, listTransfers, membersByAccount, summary, totalsByOwner } from './reports.js';
 
 /**
@@ -58,8 +59,7 @@ export async function setSetting(db: Db, key: string, value: string) {
 
 const q = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
-async function ensureFolder(name: string, parent: string) {
-  const api = google();
+async function ensureFolder(api: OAuth2Client, name: string, parent: string) {
   const found = await api.request<{ files: { id: string }[] }>({
     url: DRIVE,
     params: {
@@ -95,9 +95,9 @@ export async function placeInFolder(db: Db, gameId: number) {
   const base = await getSetting(db, 'drive_folder_id');
   const g = await gameNames(db, gameId);
   if (!base || !g.sheet_id) return;
-  const folder = await ensureFolder(g.folderName, base);
+  const api = (await userClient(db)) ?? google();
+  const folder = await ensureFolder(api, g.folderName, base);
   await db.query('update game set drive_folder_id = $2 where id = $1', [gameId, folder]);
-  const api = google();
   const file = await api.request<{ parents?: string[] }>({ url: `${DRIVE}/${g.sheet_id}`, params: { fields: 'parents', supportsAllDrives: true } });
   // Parents are visible only inside folders shared with the bank; a sheet elsewhere (e.g. the host's
   // My Drive root) cannot be moved by an editor, so it is only renamed and stays where it is.
@@ -120,9 +120,12 @@ export async function createInFolder(db: Db, gameId: number) {
   if (!base) throw new AppError('Папка Google Диска для таблиц не задана (раздел «Google-таблица», делает Супер-ведущий)');
   const g = await gameNames(db, gameId);
   if (g.sheet_id) throw new AppError('Таблица уже подключена');
+  // Files are made as the connected Google user when there is one (their storage), else as the bank.
+  const user = await userClient(db);
+  const api = user ?? google();
   let folder: string;
   try {
-    folder = await ensureFolder(g.folderName, base);
+    folder = await ensureFolder(api, g.folderName, base);
   } catch (e: any) {
     const reason = e?.response?.data?.error?.details?.find((d: any) => d.reason)?.reason;
     throw new AppError(reason === 'SERVICE_DISABLED'
@@ -134,7 +137,7 @@ export async function createInFolder(db: Db, gameId: number) {
   await db.query('update game set drive_folder_id = $2 where id = $1', [gameId, folder]);
   const name = g.sheetName;
   try {
-    const sheet = await google().request<{ id: string }>({
+    const sheet = await api.request<{ id: string }>({
       url: DRIVE, method: 'POST', params: { supportsAllDrives: true },
       data: { name, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [folder] },
     });
@@ -142,7 +145,8 @@ export async function createInFolder(db: Db, gameId: number) {
   } catch (e: any) {
     console.error('drive create sheet', e?.response?.data?.error?.message ?? e);
     throw new AppError(
-      `Подпапка «${g.folderName}» готова, но Google не даёт техническому аккаунту создавать таблицы в личном Диске. ` +
+      (user ? `Подпапка «${g.folderName}» готова, но Google не дал создать таблицу от имени подключённого аккаунта. ` :
+        `Подпапка «${g.folderName}» готова, но Google не даёт техническому аккаунту создавать таблицы в личном Диске (подключите вход через Google). `) +
       `Создайте таблицу в подпапке сами: ${folderUrl(folder)} (доступ для банка откроется автоматически) и вставьте ссылку ниже.`, 502);
   }
   await syncNow(db, gameId).catch(() => {});

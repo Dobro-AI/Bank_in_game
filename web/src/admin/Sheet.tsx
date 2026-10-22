@@ -3,7 +3,7 @@ import { api, dateTime, useLoad } from '../api';
 import { ErrorText, Field } from '../ui';
 import type { Ctx } from './GamePage';
 
-interface Status { sheetId: string; syncedAt: string | null; error: string; serviceEmail: string | null; baseFolderId: string; gameFolderId: string }
+interface Status { sheetId: string; syncedAt: string | null; error: string; serviceEmail: string | null; baseFolderId: string; gameFolderId: string; oauthConfigured: boolean; googleUser: string | null }
 
 /** Live mirror of the game in Google Sheets, embedded in the cabinet. */
 export function Sheet({ ctx }: { ctx: Ctx }) {
@@ -49,11 +49,18 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
           в переменной <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> (инструкция в README).
         </div>
       )}
+      {ctx.d.can.super && <GoogleAccount s={s} gameId={ctx.id} onChanged={status.reload} />}
       {ctx.d.can.super && <BaseFolder current={s.baseFolderId} onSaved={status.reload} />}
       {!s.sheetId && s.baseFolderId && ctx.d.can.config && ctx.d.game.kind === 'branch' && (
         <div className="panel row between">
-          <span className="small">Банк создаст подпапку этой игры в общей папке. В личном Google Диске таблицу в ней создаёте вы — доступ для банка откроется сам, останется вставить ссылку.</span>
-          <button className="btn primary" disabled={busy} onClick={create}>{busy ? 'Создаём…' : 'Создать подпапку игры'}</button>
+          <span className="small">
+            {s.googleUser
+              ? 'Банк создаст таблицу в подпапке этой игры от имени подключённого Google-аккаунта и сразу её заполнит.'
+              : 'Банк создаст подпапку этой игры. Без входа через Google таблицу в ней создаёте вы — доступ для банка откроется сам, останется вставить ссылку.'}
+          </span>
+          <button className="btn primary" disabled={busy} onClick={create}>
+            {busy ? 'Создаём…' : s.googleUser ? 'Создать таблицу в папке' : 'Создать подпапку игры'}
+          </button>
         </div>
       )}
       {s.gameFolderId && (
@@ -114,5 +121,32 @@ function BaseFolder({ current, onSaved }: { current: string; onSaved: () => void
       </div>
       <ErrorText error={error} />
     </form>
+  );
+}
+
+/** Super host: connect their Google account so the bank can create spreadsheets in their Drive. */
+function GoogleAccount({ s, gameId, onChanged }: { s: Status; gameId: number; onChanged: () => void }) {
+  const [error, setError] = useState<string>();
+  if (!s.oauthConfigured) {
+    return (
+      <div className="panel small">
+        Вход через Google не настроен на сервере: нужен OAuth-клиент в <code>secrets/google-oauth-client.json</code> (инструкция в README).
+      </div>
+    );
+  }
+  return (
+    <div className="panel row between">
+      <span className="small">
+        {s.googleUser ? <>Таблицы создаются от имени <strong>{s.googleUser}</strong>.</> : 'Войдите через Google, чтобы банк сам создавал таблицы в вашем Диске.'}
+      </span>
+      {s.googleUser ? (
+        <button className="btn" onClick={async () => {
+          try { await api('/api/admin/google/disconnect', { body: {} }); onChanged(); } catch (e: any) { setError(e.message); }
+        }}>Отключить</button>
+      ) : (
+        <a className="btn primary" href={`/api/admin/google/connect?back=${encodeURIComponent(`/admin/g/${gameId}/sheet`)}`}>Войти через Google</a>
+      )}
+      <ErrorText error={error} />
+    </div>
   );
 }

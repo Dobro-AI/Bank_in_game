@@ -49,6 +49,8 @@ DATABASE_URL=postgres://... SUPER_LOGIN=... SUPER_PASSWORD=... SECURE_COOKIES=1 
 | `OPENAI_API_KEY` | необязательно: расшифровка загруженных и записанных голосовых (Claude не принимает аудио); без ключа работает только диктовка в браузере |
 | `STT_MODEL` | модель расшифровки, по умолчанию `whisper-1` |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | ключ технического аккаунта Google (содержимое JSON-файла) для живой Google-таблицы; или путь к файлу в `GOOGLE_SERVICE_ACCOUNT_FILE` |
+| `GOOGLE_OAUTH_CLIENT_FILE` | JSON OAuth-клиента Google (тип «Web application») для «Войти через Google»: банк создаёт таблицы в Диске Супер-ведущего; или `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` |
+| `PUBLIC_URL` | адрес сайта для возврата после входа через Google, например `https://bank.example.ru` |
 
 ## Готовые игры
 
@@ -104,3 +106,10 @@ npm run seed:games -- --docs ../docs/games   # пересобрать докум
 - [ThakurAmanKumar/Online-Banking-System-php](https://github.com/ThakurAmanKumar/Online-Banking-System-php)
 
 Из них берём только общие идеи (счета, переводы, админка). Игровые правила реализуются отдельно.
+
+### Вход через Google (банк сам создаёт таблицы)
+
+1. Google Cloud → «Google Auth Platform» → «Branding»: название «Игровой банк», почта поддержки; «Audience» → External → «Publish app» (In production), чтобы доступ не истекал через 7 дней.
+2. «Clients» → «Create client» → «Web application» → «Authorized redirect URIs»: `<адрес сайта>/api/admin/google/callback` (локально — `http://localhost:3001/api/admin/google/callback` и `http://localhost:3000/api/admin/google/callback`).
+3. Скачайте JSON клиента в `secrets/google-oauth-client.json` и перезапустите сервер.
+4. В кабинете Супер-ведущего → «Google-таблица» → «Войти через Google». На экране «Google не проверил приложение» → «Дополнительно» → «Перейти». Дальше кнопка «Создать таблицу в папке» создаёт таблицу сама.

@@ -11,6 +11,7 @@ import { AppError, Db } from './db.js';
 import * as games from './games.js';
 import * as reports from './reports.js';
 import { AttemptLimiter, hashSecret, newToken, tokenHash, verifySecret } from './security.js';
+import * as googleUser from './google-user.js';
 import * as sheets from './sheets.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
 import { hostAdjust, payFixedPrice, playerTransfer } from './transfers.js';
@@ -606,8 +607,34 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     return {
       sheetId: g.sheet_id, syncedAt: g.sheet_synced_at, error: g.sheet_error, serviceEmail: sheets.serviceEmail(),
       baseFolderId: await sheets.getSetting(db, 'drive_folder_id'), gameFolderId: g.drive_folder_id,
+      oauthConfigured: googleUser.oauthConfigured(), googleUser: await googleUser.connectedEmail(db),
     };
   }
+
+  // "Войти через Google": the super host lets the bank create files in their Drive.
+  const callbackUrl = (req: FastifyRequest) =>
+    process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL.replace(/\/$/, '')}/api/admin/google/callback`
+      : `${req.protocol}://${req.headers.host}/api/admin/google/callback`;
+
+  app.get('/api/admin/google/connect', async (req, reply) => {
+    await needSuper(req);
+    const back = String((req.query as any).back ?? '/admin');
+    return reply.redirect(googleUser.authUrl(callbackUrl(req), back.startsWith('/admin') ? back : '/admin'));
+  });
+
+  app.get('/api/admin/google/callback', async (req, reply) => {
+    await needSuper(req);
+    const q = req.query as any;
+    if (q.error) return reply.redirect(`/admin?google=${encodeURIComponent(String(q.error))}`);
+    const back = await googleUser.finishAuth(db, String(q.code ?? ''), String(q.state ?? ''));
+    return reply.redirect(back);
+  });
+
+  app.post('/api/admin/google/disconnect', async (req) => {
+    await needSuper(req);
+    await googleUser.disconnect(db);
+    return { ok: true };
+  });
 
   /** The Drive folder where game spreadsheets are created, in subfolders per root game. */
   app.put('/api/admin/drive-folder', async (req) => {
