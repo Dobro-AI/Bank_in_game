@@ -93,10 +93,15 @@ describe('активы и мощности', () => {
 describe('Google-таблица', () => {
   it('собирает листы переводов, сводки, мощностей, OPEX и журнала', async () => {
     const sheets = await buildSheets(db, branchId);
-    expect(sheets.map((s) => s.title)).toEqual(['Переводы', 'Сводка', 'Мощности', 'Выручка и OPEX', 'Журнал активов']);
+    expect(sheets.map((s) => s.title)).toEqual(['Деньги', 'Переводы', 'Сводка', 'Мощности', 'Выручка и OPEX', 'Журнал активов']);
     const capacity = sheets.find((s) => s.title === 'Мощности')!.rows;
     expect(capacity).toContainEqual(['IVI', 'Сервер', 0, 2, 2, 60, 'ч', 0]);
-    expect(sheets[0].rows[1]).toContain('Стартовый баланс');
+    expect(sheets[1].rows[1]).toContain('Стартовый баланс');
+    // "Деньги": start capital in B, the balance in C sums every transfer written to the right.
+    const money = sheets[0];
+    const n = money.rows.findIndex((r) => r[0] === 'IVI') + 1;
+    expect(money.rows[n - 1]).toEqual(['IVI', expect.any(Number), `=B${n}+SUM(D${n}:W${n})`]);
+    expect(money.styles![1]).toBe('tact');
   });
 
   it('понимает ссылку на таблицу', () => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { Db, openDb } from '../src/db.js';
 import * as games from '../src/games.js';
 import { closeTact, summary } from '../src/reports.js';
-import { hostAdjust, payFixedPrice, playerTransfer } from '../src/transfers.js';
+import { deleteTransfer, editTransfer, hostAdjust, payFixedPrice, playerTransfer } from '../src/transfers.js';
 
 let db: Db;
 let rootId: number;
@@ -218,5 +218,52 @@ describe('коды ролей', () => {
     const fresh = await games.setRoleCode(db, banker.id);
     expect(fresh).toMatch(/^\d{4}$/);
     expect(fresh).not.toBe('1234');
+  });
+});
+
+describe('правка переводов ведущим', () => {
+  it('сумма, получатель и удаление двигают балансы и пересчитывают слепки закрытых тактов', async () => {
+    const mayor = await join('Мэр');
+    const banker = await join('Банкир');
+    const journalist = await join('Журналист');
+    const from = await accountOf(mayor.roleId, 'individual');
+    const to = await accountOf(banker.roleId, 'individual');
+    const other = await accountOf(journalist.roleId, 'individual');
+    const { transfer: t } = await playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 30 });
+    const { closed } = await closeTact(db, branchId);
+
+    await editTransfer(db, branchId, t.id, { amount: 40, toAccountId: other.id, comment: 'исправлено' });
+    expect(await balanceOf(from.id)).toBe(60);
+    expect(await balanceOf(to.id)).toBe(50);
+    expect(await balanceOf(other.id)).toBe(40);
+    const snap = (await summary(db, branchId, closed.id)).rows;
+    expect(snap.find((r) => r.accountId === other.id)).toMatchObject({ received: 40, balanceEnd: 40 });
+    expect(snap.find((r) => r.accountId === to.id)).toMatchObject({ received: 0, balanceEnd: 50 });
+    // The open tact starts where the corrected snapshot ends.
+    expect((await summary(db, branchId)).rows.find((r) => r.accountId === other.id).balanceStart).toBe(40);
+
+    await deleteTransfer(db, branchId, t.id);
+    expect(await balanceOf(from.id)).toBe(100);
+    expect(await balanceOf(other.id)).toBe(0);
+    expect((await summary(db, branchId, closed.id)).rows.find((r) => r.accountId === from.id).balanceEnd).toBe(100);
+  });
+});
+
+describe('лист «Деньги» в Google', () => {
+  it('переводы пишутся вправо в строку компании, следующий такт начинается с остатка прошлого', async () => {
+    const { buildSheets } = await import('../src/sheets.js');
+    const mayor = await join('Мэр');
+    const banker = await join('Банкир');
+    const from = await accountOf(mayor.roleId, 'individual');
+    const to = await accountOf(banker.roleId, 'individual');
+    await playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 30, comment: 'аренда' });
+    await closeTact(db, branchId);
+    const money = (await buildSheets(db, branchId))[0];
+    const rowOf = (title: string, k = 0) => money.rows.map((r, i) => [r, i + 1] as const).filter(([r]) => r[0] === title)[k];
+    const [t1, n1] = rowOf(from.title);
+    expect(t1.slice(1, 4)).toEqual([100, `=B${n1}+SUM(D${n1}:W${n1})`, -30]);
+    expect(money.notes![n1 - 1][3]).toBe(`кому: ${to.title} — аренда`);
+    const [t2] = rowOf(from.title, 1);
+    expect(t2[1]).toBe(`=C${n1}`);
   });
 });

@@ -80,7 +80,10 @@ export function Capacity({ ctx }: { ctx: Ctx }) {
                 <td>
                   {r.assets.map((a) => (
                     <div key={a.code} className="nowrap">
-                      {a.title}: <strong>{a.end}</strong>{a.change ? <span className="muted"> ({a.change > 0 ? '+' : ''}{a.change})</span> : null}
+                      {a.title}: {editable
+                        ? <QtyInput key={`${a.code}:${a.end}`} ctx={ctx} accountId={r.accountId} cell={a} onSaved={table.reload} />
+                        : <strong>{a.end}</strong>}
+                      {a.change ? <span className="muted"> ({a.change > 0 ? '+' : ''}{a.change})</span> : null}
                     </div>
                   ))}
                 </td>
@@ -114,6 +117,29 @@ export function Capacity({ ctx }: { ctx: Ctx }) {
           {post === 'opex' && <p className="small muted">Списание может увести счёт в минус.</p>}
         </Confirm>
       )}
+    </>
+  );
+}
+
+/** Holdings typed in directly: the difference goes to the asset journal. */
+function QtyInput({ ctx, accountId, cell, onSaved }: { ctx: Ctx; accountId: number; cell: AssetCell; onSaved: () => void }) {
+  const [value, setValue] = useState(String(cell.end));
+  const [error, setError] = useState<string>();
+  async function save() {
+    const delta = Number(value || 0) - cell.end;
+    if (!delta) return;
+    try {
+      await api(`/api/admin/games/${ctx.id}/ledger`, { body: { accountId, code: cell.code, delta, comment: 'Изменено в мощностях' } });
+      setError(undefined);
+      onSaved();
+    } catch (e: any) { setError(e.message); }
+  }
+  return (
+    <>
+      <input className="cell-input" style={{ width: 64, textAlign: 'right' }} inputMode="numeric" value={value}
+        aria-label={`Количество, ${cell.title}`} onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))} onBlur={save}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+      {error && <span className="tiny error"> {error}</span>}
     </>
   );
 }

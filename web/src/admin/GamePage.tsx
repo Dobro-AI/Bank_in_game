@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, newKey, useLive, useLoad } from '../api';
 import { AdjustIcon, BadgeIcon, BoxIcon, BranchIcon, ChartIcon, FlagIcon, GearIcon, KeyIcon, SparkIcon, TableIcon, TransferIcon, UsersIcon } from '../icons';
+import { Select } from '../Select';
 import { Confirm, Empty, ErrorText, Field, Money } from '../ui';
 import type { Staff } from './AdminApp';
 import { Assistant } from './Assistant';
@@ -74,8 +75,8 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
       </header>
       {!isRoot && d.game.status === 'draft' && <LaunchBanner ctx={ctx} />}
       {current === 'summary' && <SheetView ctx={ctx} section="summary" tabs={['Сводка']}><Summary ctx={ctx} /></SheetView>}
-      {current === 'transfers' && <SheetView ctx={ctx} section="transfers" tabs={['Переводы']}><Transfers ctx={ctx} /></SheetView>}
-      {current === 'calc' && <Calc ctx={ctx} />}
+      {current === 'transfers' && <SheetView ctx={ctx} section="transfers" tabs={['Деньги', 'Переводы']}><Transfers ctx={ctx} /></SheetView>}
+      {current === 'calc' && <SheetView ctx={ctx} section="calc" tabs={['Деньги']} initial="bank"><Calc ctx={ctx} /></SheetView>}
       {current === 'people' && <People ctx={ctx} />}
       {current === 'codes' && <Codes ctx={ctx} />}
       {current === 'adjust' && <Adjust ctx={ctx} />}
@@ -167,6 +168,8 @@ function SummaryTable({ ctx, f }: { ctx: Ctx; f: F }) {
   const rows = s.data.rows as any[];
   const players = rows.filter((r) => r.kind !== 'host');
   const sum = (k: string) => players.reduce((a, r) => a + r[k], 0);
+  // The open tact's ending balance can be typed in: the difference is credited or debited.
+  const editable = ctx.d.can.run && !s.data.tact.closed_at;
   return (
     <>
       <p className="muted small">Такт {s.data.tact.number} · {s.data.tact.closed_at ? `завершён ${dateTime(s.data.tact.closed_at)}` : 'идёт, данные живые'}</p>
@@ -180,7 +183,12 @@ function SummaryTable({ ctx, f }: { ctx: Ctx; f: F }) {
               <tr key={r.accountId}>
                 <td>{r.title}</td><td>{ACCOUNT_KIND[r.kind]}</td><td>{r.owner}</td><td>{r.coowners}</td>
                 <td className="num"><Money value={r.balanceStart} /></td><td className="num"><Money value={r.received} /></td>
-                <td className="num"><Money value={r.sent} /></td><td className="num"><Money value={r.balanceEnd} /></td>
+                <td className="num"><Money value={r.sent} /></td>
+                <td className="num">
+                  {editable && r.kind !== 'host'
+                    ? <BalanceInput key={`${r.accountId}:${r.balanceEnd}`} ctx={ctx} accountId={r.accountId} title={r.title} value={r.balanceEnd} onSaved={s.reload} />
+                    : <Money value={r.balanceEnd} />}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -205,6 +213,27 @@ function SummaryTable({ ctx, f }: { ctx: Ctx; f: F }) {
   );
 }
 
+function BalanceInput({ ctx, accountId, title, value, onSaved }: { ctx: Ctx; accountId: number; title: string; value: number; onSaved: () => void }) {
+  const [v, setV] = useState(String(value));
+  const [error, setError] = useState<string>();
+  async function save() {
+    if (v === '' || v === '-' || Number(v) === value) { setV(String(value)); return; }
+    try {
+      await api(`/api/admin/games/${ctx.id}/balance`, { method: 'PUT', body: { accountId, balance: Number(v) } });
+      setError(undefined);
+      onSaved();
+    } catch (e: any) { setError(e.message); }
+  }
+  return (
+    <>
+      <input className="cell-input num-input" inputMode="numeric" value={v} aria-label={`На конец, ${title}`}
+        onChange={(e) => setV(e.target.value.replace(/[^\d-]/g, ''))} onBlur={save}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+      {error && <div className="tiny error">{error}</div>}
+    </>
+  );
+}
+
 function Summary({ ctx }: { ctx: Ctx }) {
   const [f, setF] = useState<F>({});
   return (<><Filters ctx={ctx} f={f} set={setF} noTactAll /><SummaryTable ctx={ctx} f={f} /></>);
@@ -213,26 +242,76 @@ function Summary({ ctx }: { ctx: Ctx }) {
 function Transfers({ ctx }: { ctx: Ctx }) {
   const [f, setF] = useState<F>({});
   const list = useLoad(() => api<any[]>(`/api/admin/games/${ctx.id}/transfers?${qs(f)}`), [ctx.id, qs(f), ctx.tick]);
+  const editable = ctx.d.can.run;
   return (
     <>
       <Filters ctx={ctx} f={f} set={setF} />
       <ErrorText error={list.error} />
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Дата и время</th><th>Такт</th><th>Тип</th><th>Инициатор</th><th>Отправитель</th><th>Получатель</th><th className="num">Сумма</th><th>Комментарий</th></tr></thead>
+          <thead><tr><th>Дата и время</th><th>Такт</th><th>Тип</th><th>Инициатор</th><th>Отправитель</th><th>Получатель</th><th className="num">Сумма</th><th>Комментарий</th>{editable && <th></th>}</tr></thead>
           <tbody>
-            {list.data?.map((t) => (
-              <tr key={t.id}>
-                <td style={{ whiteSpace: 'nowrap' }}>{dateTime(t.created_at)}</td><td>{t.tact}</td><td>{KIND_LABEL[t.kind]}</td>
-                <td>{t.initiator}</td><td>{t.from_title}</td><td>{t.to_title}</td>
-                <td className="num"><Money value={t.amount} /></td><td>{t.comment}</td>
-              </tr>
-            ))}
+            {list.data?.map((t) => editable
+              ? <TransferRow key={`${t.id}:${t.amount}:${t.from_account_id}:${t.to_account_id}:${t.comment}`} ctx={ctx} t={t} onSaved={list.reload} />
+              : (
+                <tr key={t.id}>
+                  <td style={{ whiteSpace: 'nowrap' }}>{dateTime(t.created_at)}</td><td>{t.tact}</td><td>{KIND_LABEL[t.kind]}</td>
+                  <td>{t.initiator}</td><td>{t.from_title}</td><td>{t.to_title}</td>
+                  <td className="num"><Money value={t.amount} /></td><td>{t.comment}</td>
+                </tr>
+              ))}
           </tbody>
         </table>
         {list.data?.length === 0 && <Empty>Переводов нет</Empty>}
       </div>
     </>
+  );
+}
+
+/** A transfer the host corrects in place: amount, accounts, comment; or removes it. Balances follow. */
+function TransferRow({ ctx, t, onSaved }: { ctx: Ctx; t: any; onSaved: () => void }) {
+  const [amount, setAmount] = useState(String(t.amount));
+  const [from, setFrom] = useState(String(t.from_account_id));
+  const [to, setTo] = useState(String(t.to_account_id));
+  const [comment, setComment] = useState(t.comment);
+  const [del, setDel] = useState(false);
+  const [error, setError] = useState<string>();
+  // Start capital and revenue/OPEX postings keep their accounts.
+  const fixed = t.kind === 'initial' || t.posting;
+  const options = ctx.accounts.map((a) => ({ value: String(a.id), label: a.title, group: ACCOUNT_KIND[a.kind] }));
+  const dirty = amount !== String(t.amount) || from !== String(t.from_account_id) || to !== String(t.to_account_id) || comment !== t.comment;
+  const act = async (fn: () => Promise<unknown>) => {
+    setError(undefined);
+    try { await fn(); onSaved(); } catch (e: any) { setError(e.message); }
+  };
+  const save = () => act(() => api(`/api/admin/games/${ctx.id}/transfers/${t.id}`, {
+    method: 'PATCH', body: { amount: Number(amount), comment, ...(fixed ? {} : { fromAccountId: Number(from), toAccountId: Number(to) }) },
+  }));
+  return (
+    <tr>
+      <td style={{ whiteSpace: 'nowrap' }}>{dateTime(t.created_at)}</td><td>{t.tact}</td><td>{KIND_LABEL[t.kind]}</td>
+      <td>{t.initiator}</td>
+      <td className="pick">{fixed ? t.from_title : <Select value={from} onChange={setFrom} options={options} ariaLabel="Отправитель" />}</td>
+      <td className="pick">{fixed ? t.to_title : <Select value={to} onChange={setTo} options={options} ariaLabel="Получатель" />}</td>
+      <td className="num">
+        <input className="cell-input num-input" inputMode="numeric" value={amount} aria-label="Сумма"
+          onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))} />
+      </td>
+      <td><input className="cell-input" value={comment} aria-label="Комментарий" onChange={(e) => setComment(e.target.value)} /></td>
+      <td>
+        <div className="row" style={{ flexWrap: 'nowrap' }}>
+          <button className="btn small primary" disabled={!dirty || !(Number(amount) > 0)} onClick={save}>Сохранить</button>
+          <button className="btn small danger" onClick={() => setDel(true)}>Удалить</button>
+        </div>
+        <ErrorText error={error} />
+        {del && (
+          <Confirm title="Удалить перевод?" confirmText="Удалить" onCancel={() => setDel(false)}
+            onConfirm={() => { setDel(false); act(() => api(`/api/admin/games/${ctx.id}/transfers/${t.id}`, { method: 'DELETE' })); }}>
+            {t.from_title} → {t.to_title}, {t.amount}. Деньги вернутся отправителю, итоги тактов пересчитаются.
+          </Confirm>
+        )}
+      </td>
+    </tr>
   );
 }
 

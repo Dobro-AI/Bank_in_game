@@ -67,6 +67,7 @@ export async function listTransfers(db: Db, gameId: number, f: Filters) {
   }
   return db.query(
     `select t.id, t.created_at, tc.number as tact, t.kind, t.amount, t.comment,
+            coalesce(t.idempotency_key like 'post:%', false) as posting,
             t.from_account_id, fa.title as from_title, t.to_account_id, ta.title as to_title,
             coalesce(ip.first_name || ' ' || ip.last_name || ' (' || ir.title || ')', s.name, '') as initiator
      from transfer t
@@ -99,24 +100,7 @@ export async function summary(db: Tx, gameId: number, tactId?: number) {
     rows = snap.map((s) => ({ accountId: s.account_id, balanceStart: s.balance_start, received: s.received,
       sent: s.sent, balanceEnd: s.balance_end, ownersSnapshot: s.owners }));
   } else {
-    const prev = all.filter((t) => t.number < tact.number).at(-1);
-    const startRows = prev ? await db.query('select account_id, balance_end from tact_snapshot where tact_id = $1', [prev.id]) : [];
-    const start = new Map(startRows.map((r) => [r.account_id, r.balance_end]));
-    const moves = await db.query(
-      `select a.id,
-         coalesce((select sum(amount) from transfer where tact_id = $2 and to_account_id = a.id and kind <> 'initial'), 0) as received,
-         coalesce((select sum(amount) from transfer where tact_id = $2 and from_account_id = a.id and kind <> 'initial'), 0) as sent,
-         coalesce((select sum(case when to_account_id = a.id then amount else -amount end) from transfer
-                   where tact_id = $2 and kind = 'initial' and a.id in (to_account_id, from_account_id)), 0) as initial
-       from account a where a.game_id = $1`,
-      [gameId, tact.id],
-    );
-    // Start-up capital counts as money at the start of the tact, not as an incoming transfer.
-    rows = moves.map((m) => {
-      const s = (start.get(m.id) ?? 0) + Number(m.initial);
-      return { accountId: m.id, balanceStart: s, received: Number(m.received), sent: Number(m.sent),
-        balanceEnd: s + Number(m.received) - Number(m.sent) };
-    });
+    rows = await computeTact(db, gameId, tact, all);
   }
   const kindOrder: Record<string, number> = { legal: 0, individual: 1, host: 2 };
   rows = rows
@@ -128,6 +112,45 @@ export async function summary(db: Tx, gameId: number, tactId?: number) {
     })
     .sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || a.title.localeCompare(b.title, 'ru'));
   return { tact, rows };
+}
+
+/** A tact from its transfers: start = previous snapshot end, end = start + received − sent. */
+async function computeTact(db: Tx, gameId: number, tact: any, all: any[]) {
+  const prev = all.filter((t) => t.number < tact.number).at(-1);
+  const startRows = prev ? await db.query('select account_id, balance_end from tact_snapshot where tact_id = $1', [prev.id]) : [];
+  const start = new Map(startRows.map((r) => [r.account_id, Number(r.balance_end)]));
+  const moves = await db.query(
+    `select a.id,
+       coalesce((select sum(amount) from transfer where tact_id = $2 and to_account_id = a.id and kind <> 'initial'), 0) as received,
+       coalesce((select sum(amount) from transfer where tact_id = $2 and from_account_id = a.id and kind <> 'initial'), 0) as sent,
+       coalesce((select sum(case when to_account_id = a.id then amount else -amount end) from transfer
+                 where tact_id = $2 and kind = 'initial' and a.id in (to_account_id, from_account_id)), 0) as initial
+     from account a where a.game_id = $1`,
+    [gameId, tact.id],
+  );
+  // Start-up capital counts as money at the start of the tact, not as an incoming transfer.
+  return moves.map((m) => {
+    const s = (start.get(m.id) ?? 0) + Number(m.initial);
+    return { accountId: m.id, balanceStart: s, received: Number(m.received), sent: Number(m.sent),
+      balanceEnd: s + Number(m.received) - Number(m.sent) };
+  });
+}
+
+/** After a transfer of a closed tact was corrected, that tact's snapshot and every later one are recounted. */
+export async function rebuildSnapshots(tx: Tx, gameId: number, fromTactId: number) {
+  const all = await tacts(tx, gameId);
+  const from = all.find((t) => t.id === fromTactId);
+  if (!from) return;
+  for (const t of all.filter((x) => x.closed_at && x.number >= from.number)) {
+    for (const r of await computeTact(tx, gameId, t, all)) {
+      await tx.query(
+        `insert into tact_snapshot (tact_id, account_id, balance_start, received, sent, balance_end) values ($1,$2,$3,$4,$5,$6)
+         on conflict (tact_id, account_id) do update set balance_start = excluded.balance_start,
+           received = excluded.received, sent = excluded.sent, balance_end = excluded.balance_end`,
+        [t.id, r.accountId, r.balanceStart, r.received, r.sent, r.balanceEnd],
+      );
+    }
+  }
 }
 
 /** Totals per player (sum of accounts they own) for the "сколько денег у каждого" view. */

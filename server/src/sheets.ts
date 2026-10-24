@@ -3,7 +3,7 @@ import { JWT, OAuth2Client } from 'google-auth-library';
 import * as assets from './assets.js';
 import { AppError, Db } from './db.js';
 import { userClient } from './google-user.js';
-import { KIND_LABEL, listTransfers, membersByAccount, summary, totalsByOwner } from './reports.js';
+import { KIND_LABEL, listTransfers, membersByAccount, summary, tacts, totalsByOwner } from './reports.js';
 
 /**
  * One-way mirror of a game into a Google spreadsheet: after every change the bank rewrites the
@@ -166,8 +166,66 @@ type Cell = string | number;
 const dt = (d: string | Date) =>
   new Date(d).toLocaleString('ru-RU', { timeZone: process.env.TZ_DISPLAY ?? 'Europe/Moscow', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-/** The sheets as rows. Exported for tests: no Google calls here. */
-export async function buildSheets(db: Db, gameId: number): Promise<{ title: string; rows: Cell[][] }[]> {
+/** Row kinds of the money sheet; each has its own look, like the organisers' "Деньги" sheet. */
+type Style = 'head' | 'tact' | 'row' | 'alt' | 'blank' | 'total';
+export interface SheetData { title: string; rows: Cell[][]; notes?: string[][]; styles?: Style[]; first?: boolean }
+
+export const column = (n: number): string => (n <= 26 ? String.fromCharCode(64 + n) : column(Math.floor((n - 1) / 26)) + column(((n - 1) % 26) + 1));
+
+/**
+ * The organisers' "Деньги" sheet: a block per tact, a row per company. B is the money at the start
+ * of the tact (the previous tact's balance), every transfer goes into the next free cell to the
+ * right (+ came in, − went out, details in the cell's note), C is the balance = B + all of them.
+ */
+async function moneySheet(db: Db, gameId: number, title: string): Promise<SheetData> {
+  const kindOrder: Record<string, number> = { legal: 0, individual: 1 };
+  const accounts = (await db.query("select id, kind, title from account where game_id = $1 and kind <> 'host'", [gameId]))
+    .sort((x, y) => kindOrder[x.kind] - kindOrder[y.kind] || x.title.localeCompare(y.title, 'ru'));
+  const moves = await db.query(
+    `select t.tact_id, t.kind, t.amount, t.comment, t.from_account_id, t.to_account_id, fa.title as from_title, ta.title as to_title
+     from transfer t join account fa on fa.id = t.from_account_id join account ta on ta.id = t.to_account_id
+     where t.game_id = $1 order by t.id`,
+    [gameId],
+  );
+  const all = await tacts(db, gameId);
+  const cellsOf = (tactId: number, id: number) => moves
+    .filter((m) => m.tact_id === tactId && m.kind !== 'initial' && (m.from_account_id === id || m.to_account_id === id))
+    .map((m) => {
+      const incoming = m.to_account_id === id;
+      return { v: incoming ? Number(m.amount) : -Number(m.amount), note: `${incoming ? `от: ${m.from_title}` : `кому: ${m.to_title}`}${m.comment ? ` — ${m.comment}` : ''}` };
+    });
+  const most = Math.max(0, ...all.flatMap((t) => accounts.map((x) => cellsOf(t.id, x.id).length)));
+  const last = column(3 + Math.max(most + 5, 20));
+
+  const rows: Cell[][] = [[title, 'На начало такта', 'Остаток на счету', 'Переводы: + пришло, − ушло (от кого и за что — в примечании к ячейке)']];
+  const notes: string[][] = [[]];
+  const styles: Style[] = ['head'];
+  const push = (style: Style, row: Cell[] = [], note: string[] = []) => { rows.push(row); styles.push(style); notes.push(note); return rows.length; };
+  const prevRow = new Map<number, number>();
+  for (const t of all) {
+    push('tact', [`${t.number} такт${t.closed_at ? '' : ' — идёт'}`]);
+    const first = rows.length + 1;
+    accounts.forEach((x, i) => {
+      const n = rows.length + 1;
+      // Start capital is money at the start of tact 1, not a transfer.
+      const initial = moves.filter((m) => m.tact_id === t.id && m.kind === 'initial' && m.to_account_id === x.id).reduce((sum, m) => sum + Number(m.amount), 0)
+        - moves.filter((m) => m.tact_id === t.id && m.kind === 'initial' && m.from_account_id === x.id).reduce((sum, m) => sum + Number(m.amount), 0);
+      const prev = prevRow.get(x.id);
+      const start: Cell = prev ? `=C${prev}${initial ? `+${initial}` : ''}` : initial;
+      const cells = cellsOf(t.id, x.id);
+      push(i % 2 ? 'alt' : 'row', [x.title, start, `=B${n}+SUM(D${n}:${last}${n})`, ...cells.map((c) => c.v)], ['', '', '', ...cells.map((c) => c.note)]);
+      prevRow.set(x.id, n);
+    });
+    const end = rows.length;
+    push('blank');
+    push('total', ['Сумма у всех:', `=SUM(B${first}:B${end})`, `=SUM(C${first}:C${end})`]);
+    push('blank');
+  }
+  return { title: 'Деньги', rows, notes, styles, first: true };
+}
+
+/** The sheets as rows. Exported for tests: no Google calls here. Styled sheets carry formulas and formatting. */
+export async function buildSheets(db: Db, gameId: number): Promise<SheetData[]> {
   const transfers = await listTransfers(db, gameId, {});
   const sum = await summary(db, gameId);
   const members = await membersByAccount(db, gameId);
@@ -181,6 +239,7 @@ export async function buildSheets(db: Db, gameId: number): Promise<{ title: stri
   const tactNo = sum.tact?.number ?? '';
 
   return [
+    ...(sum.tact ? [await moneySheet(db, gameId, (await gameNames(db, gameId)).title)] : []),
     {
       title: 'Переводы',
       rows: [
@@ -231,6 +290,59 @@ export async function buildSheets(db: Db, gameId: number): Promise<{ title: stri
 
 const API = 'https://sheets.googleapis.com/v4/spreadsheets';
 
+const rgb = (hex: string) => ({ red: parseInt(hex.slice(1, 3), 16) / 255, green: parseInt(hex.slice(3, 5), 16) / 255, blue: parseInt(hex.slice(5, 7), 16) / 255 });
+const BG: Record<Style, string> = { head: '#f9e2cf', tact: '#f9e2cf', row: '#ffffff', alt: '#dff3f8', blank: '#ffffff', total: '#fbe0d9' };
+const thin = { style: 'SOLID', color: rgb('#c7c7c7') };
+const bold = { style: 'SOLID_MEDIUM', color: rgb('#000000') };
+
+/** Whole-sheet rewrite of a styled sheet: size, frozen panes, values with formulas, colours, notes. */
+export function styledRequests(sheetId: number, x: SheetData): object[] {
+  const width = Math.max(...x.rows.map((r) => r.length), 23);
+  const value = (v: Cell) => (typeof v === 'number' ? { numberValue: v } : v.startsWith('=') ? { formulaValue: v } : { stringValue: v });
+  const rows = x.rows.map((r, i) => {
+    const style = x.styles![i];
+    return {
+      values: Array.from({ length: width }, (_, c) => {
+        const v = r[c];
+        const black = c === 0 && (style === 'tact' || style === 'head');
+        const money = c >= 3 && (style === 'row' || style === 'alt');
+        return {
+          ...(v === undefined || v === '' ? {} : { userEnteredValue: value(v) }),
+          ...(x.notes?.[i]?.[c] ? { note: x.notes[i][c] } : {}),
+          userEnteredFormat: {
+            backgroundColor: rgb(black ? '#000000' : BG[style]),
+            horizontalAlignment: style === 'total' && c === 0 ? 'RIGHT' : style === 'head' && c >= 3 ? 'LEFT' : 'CENTER',
+            verticalAlignment: 'MIDDLE',
+            wrapStrategy: style === 'head' && c < 3 ? 'WRAP' : 'OVERFLOW_CELL',
+            textFormat: {
+              bold: style === 'head' || style === 'tact' || (c > 0 && c < 3 && style !== 'blank'),
+              fontSize: style === 'tact' && c === 0 ? 14 : 10,
+              foregroundColor: rgb(black ? '#ffffff' : money && typeof v === 'number' && v < 0 ? '#b91c1c' : '#000000'),
+            },
+            ...(money ? { numberFormat: { type: 'NUMBER', pattern: '+#,##0;-#,##0;0' } } : {}),
+            ...(c > 0 && c < 3 ? { numberFormat: { type: 'NUMBER', pattern: '#,##0;[Red]-#,##0;0' } } : {}),
+            ...(style === 'blank' ? {} : {
+              borders: { top: thin, bottom: thin, left: c === 1 ? bold : thin, right: c === 0 || c === 2 ? bold : thin },
+            }),
+          },
+        };
+      }),
+    };
+  });
+  const size = (dimension: 'COLUMNS' | 'ROWS', start: number, end: number, pixelSize: number) =>
+    ({ updateDimensionProperties: { range: { sheetId, dimension, startIndex: start, endIndex: end }, properties: { pixelSize }, fields: 'pixelSize' } });
+  return [
+    { updateSheetProperties: {
+      properties: { sheetId, gridProperties: { rowCount: Math.max(x.rows.length + 20, 200), columnCount: width, frozenRowCount: 1, frozenColumnCount: 3 } },
+      fields: 'gridProperties(rowCount,columnCount,frozenRowCount,frozenColumnCount)',
+    } },
+    { updateCells: { range: { sheetId }, fields: '*' } },
+    { updateCells: { start: { sheetId, rowIndex: 0, columnIndex: 0 }, rows, fields: 'userEnteredValue,userEnteredFormat,note' } },
+    size('COLUMNS', 0, 1, 230), size('COLUMNS', 1, 3, 84), size('COLUMNS', 3, width, 56), size('ROWS', 0, 1, 64),
+    ...x.styles!.flatMap((st, i) => (st === 'tact' ? [size('ROWS', i, i + 1, 36)] : [])),
+  ];
+}
+
 export async function syncNow(db: Db, gameId: number) {
   const [g] = await db.query('select sheet_id, sheet_gids from game where id = $1', [gameId]);
   if (!g?.sheet_id) throw new AppError('Google-таблица не подключена');
@@ -248,18 +360,27 @@ export async function syncNow(db: Db, gameId: number) {
       if (missing.length) {
         const added = await api.request<{ replies: { addSheet: { properties: { title: string; sheetId: number } } }[] }>({
           url: `${API}/${g.sheet_id}:batchUpdate`, method: 'POST',
-          data: { requests: missing.map((x) => ({ addSheet: { properties: { title: x.title } } })) },
+          // The account sheet goes first, the way the organisers' own file opens.
+          data: { requests: missing.map((x) => ({ addSheet: { properties: { title: x.title, ...(x.first ? { index: 0 } : {}) } } })) },
         });
         for (const r of added.data.replies) gids[r.addSheet.properties.title] = r.addSheet.properties.sheetId;
       }
       await db.query('update game set sheet_gids = $2 where id = $1', [gameId, JSON.stringify(gids)]);
     }
     const range = (title: string) => `'${title}'`;
-    await api.request({ url: `${API}/${g.sheet_id}/values:batchClear`, method: 'POST', data: { ranges: sheets.map((x) => range(x.title)) } });
+    const plain = sheets.filter((x) => !x.styles);
+    await api.request({ url: `${API}/${g.sheet_id}/values:batchClear`, method: 'POST', data: { ranges: plain.map((x) => range(x.title)) } });
     await api.request({
       url: `${API}/${g.sheet_id}/values:batchUpdate`, method: 'POST',
-      data: { valueInputOption: 'RAW', data: sheets.map((x) => ({ range: `${range(x.title)}!A1`, values: x.rows })) },
+      data: { valueInputOption: 'RAW', data: plain.map((x) => ({ range: `${range(x.title)}!A1`, values: x.rows })) },
     });
+    const styled = sheets.filter((x) => x.styles);
+    if (styled.length) {
+      await api.request({
+        url: `${API}/${g.sheet_id}:batchUpdate`, method: 'POST',
+        data: { requests: styled.flatMap((x) => styledRequests(gids[x.title], x)) },
+      });
+    }
     await db.query("update game set sheet_synced_at = now(), sheet_error = '' where id = $1", [gameId]);
   } catch (e: any) {
     // A tab deleted by hand makes the remembered ids stale: forget them, the next sync re-reads.

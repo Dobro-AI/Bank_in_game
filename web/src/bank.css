@@ -226,6 +226,9 @@ a.settings-row:hover, button.settings-row:hover { background: #fcfcfc; }
 .bank .bubble.user { background: #d1fae5; }
 .bank .proposal { border: 2px solid var(--text); }
 .bank .cell-input { border-radius: 8px; }
+.cell-input.num-input { width: 96px; text-align: right; }
+td.pick { min-width: 180px; }
+td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .bank h2 { font-size: 20px; }
 .asset-inputs { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 4px 8px; min-width: 220px; }
 .asset-input { display: flex; flex-direction: column; gap: 2px; }

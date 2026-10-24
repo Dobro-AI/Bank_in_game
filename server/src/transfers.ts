@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { AppError, Db, Tx, isUniqueViolation } from './db.js';
+import { rebuildSnapshots } from './reports.js';
 
 /** Committed transfers ('transfer', row): the Telegram bot listens to notify recipients. */
 export const transferEvents = new EventEmitter().setMaxListeners(0);
@@ -219,5 +220,73 @@ export async function hostAdjust(
     initiatorStaffId: staffId,
     idempotencyKey: scopedKey(`s${staffId}`, body.idempotencyKey),
     allowNegative: true,
+  });
+}
+
+/** Revenue/OPEX postings carry `post:<kind>:<tact>:<account>:…` keys; their signed share of tact_posting. */
+async function postingShare(tx: Tx, t: any, amount: number) {
+  const m = /^post:(revenue|opex):(\d+):(\d+):/.exec(t.idempotency_key ?? '');
+  if (!m) return;
+  const [, kind, tactId, accountId] = m;
+  // Revenue counts when money goes to the company, OPEX when it leaves the company.
+  const toCompany = t.to_account_id === Number(accountId);
+  const sign = (kind === 'revenue') === toCompany ? 1 : -1;
+  await tx.query('update tact_posting set amount = amount + $1 where tact_id = $2 and account_id = $3 and kind = $4',
+    [sign * amount, Number(tactId), Number(accountId), kind]);
+}
+
+/**
+ * The host corrects a transfer of any tact: balances move by the difference and snapshots of
+ * closed tacts are recounted. Start capital and revenue/OPEX postings keep their accounts.
+ */
+export async function editTransfer(
+  db: Db,
+  gameId: number,
+  transferId: number,
+  body: { amount?: unknown; comment?: string; fromAccountId?: number; toAccountId?: number },
+) {
+  await db.transaction(async (tx) => {
+    const [t] = await tx.query('select * from transfer where id = $1 and game_id = $2 for update', [transferId, gameId]);
+    if (!t) throw new AppError('Перевод не найден', 404);
+    const amount = body.amount === undefined ? Number(t.amount) : parseAmount(body.amount);
+    const fixed = t.kind === 'initial' || String(t.idempotency_key ?? '').startsWith('post:');
+    const fromId = fixed || !body.fromAccountId ? t.from_account_id : Number(body.fromAccountId);
+    const toId = fixed || !body.toAccountId ? t.to_account_id : Number(body.toAccountId);
+    if (fromId === toId) throw new AppError('Отправитель и получатель совпадают');
+    const ids = [...new Set([t.from_account_id, t.to_account_id, fromId, toId])];
+    const accounts = await tx.query('select id, kind from account where id = any($1::int[]) and game_id = $2 order by id for update', [ids, gameId]);
+    if (accounts.length !== ids.length) throw new AppError('Счёт не найден в этой игре', 404);
+    const kindOf = (id: number) => accounts.find((a) => a.id === id).kind;
+    let kind = t.kind;
+    if (!fixed && (fromId !== t.from_account_id || toId !== t.to_account_id)) {
+      if (kindOf(fromId) === 'host') kind = 'host_credit';
+      else if (kindOf(toId) === 'host') kind = ['fixed_price', 'to_host', 'host_debit'].includes(t.kind) ? t.kind : 'to_host';
+      else kind = 'player';
+    }
+    await tx.query('update account set balance = balance + $1 where id = $2', [t.amount, t.from_account_id]);
+    await tx.query('update account set balance = balance - $1 where id = $2', [t.amount, t.to_account_id]);
+    await tx.query('update account set balance = balance - $1 where id = $2', [amount, fromId]);
+    await tx.query('update account set balance = balance + $1 where id = $2', [amount, toId]);
+    await postingShare(tx, t, amount - Number(t.amount));
+    const comment = body.comment === undefined ? t.comment : String(body.comment).trim().slice(0, 500);
+    await tx.query('update transfer set amount = $1, from_account_id = $2, to_account_id = $3, kind = $4, comment = $5 where id = $6',
+      [amount, fromId, toId, kind, comment, t.id]);
+    await rebuildSnapshots(tx, gameId, t.tact_id);
+  });
+}
+
+/** Removes a transfer as if it never happened; assets bought with it go too. */
+export async function deleteTransfer(db: Db, gameId: number, transferId: number) {
+  await db.transaction(async (tx) => {
+    const [t] = await tx.query('select * from transfer where id = $1 and game_id = $2 for update', [transferId, gameId]);
+    if (!t) throw new AppError('Перевод не найден', 404);
+    await tx.query('select id from account where id = any($1::int[]) order by id for update', [[t.from_account_id, t.to_account_id]]);
+    await tx.query('update account set balance = balance + $1 where id = $2', [t.amount, t.from_account_id]);
+    await tx.query('update account set balance = balance - $1 where id = $2', [t.amount, t.to_account_id]);
+    await postingShare(tx, t, -Number(t.amount));
+    await tx.query("delete from asset_ledger where transfer_id = $1 and reason = 'purchase'", [t.id]);
+    await tx.query('update assistant_proposal set transfer_id = null where transfer_id = $1', [t.id]);
+    await tx.query('delete from transfer where id = $1', [t.id]);
+    await rebuildSnapshots(tx, gameId, t.tact_id);
   });
 }

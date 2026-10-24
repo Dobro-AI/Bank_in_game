@@ -17,7 +17,7 @@ import * as sheets from './sheets.js';
 import * as telegram from './telegram.js';
 import * as hostBot from './telegram-host.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
-import { hostAdjust, payFixedPrice, playerTransfer, transfer } from './transfers.js';
+import { deleteTransfer, editTransfer, hostAdjust, payFixedPrice, playerTransfer, transfer } from './transfers.js';
 
 const STAFF_COOKIE = 'sid';
 const PLAYER_COOKIE = 'psid';
@@ -627,6 +627,44 @@ export function buildApp(
       gameId: id, kind: to.kind === 'host' ? 'to_host' : 'player', fromAccountId: Number(b.fromAccountId), toAccountId: Number(b.toAccountId),
       amount: b.amount, comment: b.comment, initiatorStaffId: staff.id,
       idempotencyKey: b.idempotencyKey ? `s${staff.id}:${String(b.idempotencyKey).slice(0, 100)}` : null,
+    });
+    changed(id);
+    return res;
+  });
+
+  app.patch('/api/admin/games/:id/transfers/:tid', async (req) => {
+    const { id, tid } = req.params as any;
+    await needGame(req, Number(id), 'run');
+    const b = req.body as any;
+    await editTransfer(db, Number(id), Number(tid), {
+      amount: b.amount, comment: b.comment, fromAccountId: num(b.fromAccountId), toAccountId: num(b.toAccountId),
+    });
+    changed(Number(id));
+    return { ok: true };
+  });
+
+  app.delete('/api/admin/games/:id/transfers/:tid', async (req) => {
+    const { id, tid } = req.params as any;
+    await needGame(req, Number(id), 'run');
+    await deleteTransfer(db, Number(id), Number(tid));
+    changed(Number(id));
+    return { ok: true };
+  });
+
+  /** "На конец" typed in the summary: the difference is credited or debited by the host. */
+  app.put('/api/admin/games/:id/balance', async (req) => {
+    const id = Number((req.params as any).id);
+    const { staff } = await needGame(req, id, 'run');
+    const b = req.body as any;
+    const target = Number(b.balance);
+    if (!Number.isSafeInteger(target)) throw new AppError('Впишите целое число');
+    const [a] = await db.query("select balance from account where id = $1 and game_id = $2 and kind <> 'host'", [Number(b.accountId), id]);
+    if (!a) throw new AppError('Счёт не найден', 404);
+    const diff = target - Number(a.balance);
+    if (diff === 0) return { ok: true };
+    const res = await hostAdjust(db, id, staff.id, {
+      accountId: Number(b.accountId), direction: diff > 0 ? 'credit' : 'debit', amount: Math.abs(diff),
+      comment: 'Исправлен остаток в сводке',
     });
     changed(id);
     return res;
