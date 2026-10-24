@@ -141,3 +141,20 @@ npm run seed:games -- --docs ../docs/games   # пересобрать докум
 Техник-игротехник в кабинете → «Игры»: у каждой запущенной игры переключатель «Открыта игрокам / Закрыта» и кнопка «Игротехники» (прикрепить или открепить ведущих).
 Закрытая игра пропадает из списка игр на сайте и в боте, новые входы в неё невозможны; уже вошедшие игроки сохраняют доступ к своим счетам.
 Например: утром открыты «Развлечения», после обеда — закрыть их и открыть «Еврологистику». Название игры меняется в «Настройках».
+
+## Сервер (Docker)
+
+Банк работает на сервере в Docker: `db` (PostgreSQL 16), `app` (банк и оба бота), `caddy` (https, сертификат Let's Encrypt сам),
+`autoheal` (перезапускает банк, если тот перестал отвечать). У всех `restart: unless-stopped`: при падении и после перезагрузки сервера всё поднимается само.
+
+```bash
+cp .env.example .env               # DOMAIN, PUBLIC_URL, DB_PASSWORD, SECRETS_DIR
+# в SECRETS_DIR: google-service-account.json, google-oauth-client.json, telegram-bot-token, telegram-host-bot-token (владелец uid 1000)
+docker compose up -d --build       # первый запуск и обновление
+docker compose ps                  # состояние
+docker compose logs -f app         # журнал банка
+```
+
+Обновление кода: залить новую версию в папку с `docker-compose.yml` и снова `docker compose up -d --build app`. Данные лежат в томе `pgdata`.
+Перенос данных из локальной базы PGlite: `copy-db export` → `copy-db import` (`server/src/copy-db.ts`).
+DNS домена: A-записи `@` и `www` → IP сервера.
