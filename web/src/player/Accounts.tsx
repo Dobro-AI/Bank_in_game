@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ACCOUNT_KIND, api, useLoad } from '../api';
 import { Confirm, ErrorText, Field, Money } from '../ui';
+import { Select } from '../Select';
 import { OperationRow } from './History';
 import { TransferIcon } from '../icons';
 import { ScreenHeader } from './Screen';
@@ -132,10 +133,8 @@ function OwnerTools({ account, me, reload }: { account: Account; me: Me; reload:
       </div>
       <div className="sheet stack">
         <Field label="Передать юрлицо" hint="Новый владелец получает счёт сразу, вы теряете доступ">
-          <select value={newOwner ?? ''} onChange={(e) => setNewOwner(Number(e.target.value) || undefined)}>
-            <option value="">Кому…</option>
-            {roles.data?.filter((r) => r.id !== me.roleId).map((r) => <option key={r.id} value={r.id}>{roleLabel(r)}</option>)}
-          </select>
+          <Select value={newOwner ? String(newOwner) : ''} onChange={(v) => setNewOwner(Number(v) || undefined)} placeholder="Кому" ariaLabel="Кому передать"
+            options={(roles.data ?? []).filter((r) => r.id !== me.roleId).map((r) => ({ value: String(r.id), label: r.title, sub: r.playerName ?? undefined }))} />
         </Field>
         <button className="btn danger" disabled={!newOwner} onClick={() => setConfirmOwner(true)}>Передать</button>
       </div>
@@ -225,10 +224,8 @@ export function ConnectByPin({ accounts, reload }: { accounts: Account[]; reload
       <form className="stack" onSubmit={connect}>
         <p className="small muted">Если владелец сообщил вам PIN, вы станете совладельцем и сможете переводить с этого счёта.</p>
         <Field label="Юрлицо">
-          <select value={acc ?? ''} onChange={(e) => setAcc(Number(e.target.value))} required>
-            <option value="">Выберите…</option>
-            {recipients.data?.filter((r) => r.kind === 'legal' && !mine.has(r.id)).map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
-          </select>
+          <Select value={acc ? String(acc) : ''} onChange={(v) => setAcc(Number(v))} placeholder="Выберите юрлицо" ariaLabel="Юрлицо"
+            options={(recipients.data ?? []).filter((r) => r.kind === 'legal' && !mine.has(r.id)).map((r) => ({ value: String(r.id), label: r.title }))} />
         </Field>
         <Field label="PIN"><input value={pin} onChange={(e) => setPin(digits4(e.target.value))} inputMode="numeric" className="code" required /></Field>
         {msg && <p className="ok small">{msg}</p>}

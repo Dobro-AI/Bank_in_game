@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, money, newKey, useLoad } from '../api';
 import { Confirm, Money } from '../ui';
+import { Select } from '../Select';
 import { BuildingIcon, CheckIcon, SearchIcon } from '../icons';
 import { ScreenHeader } from './Screen';
 import { Account, PriceItem, Recipient, canSpend, initials, recipientTitle } from './types';
@@ -177,11 +178,10 @@ export function AmountPage({ accounts }: { accounts: Account[] }) {
 
           {!!prices.data?.length && (
             <div className="field">
-              <label className="field-label" htmlFor="preset">За что</label>
-              <select id="preset" value={presetId ?? ''} onChange={(e) => { setPresetId(Number(e.target.value) || undefined); setQty(1); }}>
-                <option value="">Своя сумма</option>
-                {prices.data.map((p) => <option key={p.id} value={p.id}>{p.title} — {money(p.price)} за шт.</option>)}
-              </select>
+              <span className="field-label">За что</span>
+              <Select value={presetId ? String(presetId) : ''} ariaLabel="За что" placeholder="Своя сумма"
+                onChange={(v) => { setPresetId(Number(v) || undefined); setQty(1); }}
+                options={[{ value: '', label: 'Своя сумма' }, ...prices.data.map((p) => ({ value: String(p.id), label: p.title, sub: `${money(p.price)} за шт.` }))]} />
               {preset && (
                 <div className="preset-row">
                   <div className="stepper" role="group" aria-label="Количество">

@@ -170,8 +170,8 @@ async function runTool(db: Db, ctx: { gameId: number; threadId: number }, name: 
       return accountsWithOwners(db, gameId);
     case 'list_roles':
       return db.query(
-        `select r.id, r.title, r.description, r.start_balance, p.first_name || ' ' || p.last_name as player
-         from role r left join player p on p.role_id = r.id where r.game_id = $1 order by r.title`,
+        `select r.id, r.title, r.description, r.start_balance, (select string_agg(trim(p.first_name || ' ' || p.last_name), ', ' order by p.id) from player p where p.role_id = r.id) as players
+         from role r where r.game_id = $1 order by r.title`,
         [gameId],
       );
     case 'search_transfers': {

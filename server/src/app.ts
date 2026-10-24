@@ -176,8 +176,8 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     const id = Number((req.params as any).id);
     return db.query(
       `select r.id, r.title, r.description, r.preset_first_name as "presetFirstName", r.preset_last_name as "presetLastName",
-              (p.id is not null) as taken
-       from role r join game g on g.id = r.game_id left join player p on p.role_id = r.id
+              exists (select 1 from player p where p.role_id = r.id) as taken
+       from role r join game g on g.id = r.game_id
        where r.game_id = $1 and g.kind = 'branch' and g.status = 'active' and g.visible order by r.title`,
       [id],
     );
@@ -289,8 +289,8 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   app.get('/api/player/roles', async (req) => {
     const p = await needPlayer(req);
     return db.query(
-      `select r.id, r.title, p.first_name || ' ' || p.last_name as "playerName"
-       from role r left join player p on p.role_id = r.id where r.game_id = $1 order by r.title`,
+      `select r.id, r.title, (select string_agg(trim(p.first_name || ' ' || p.last_name), ', ' order by p.id) from player p where p.role_id = r.id) as "playerName"
+       from role r where r.game_id = $1 order by r.title`,
       [p.gameId],
     );
   });
@@ -405,8 +405,8 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     const { game, staff } = await needGame(req, id, 'view');
     const [roles, startAccounts, priceItems, gameStaff, branches, assetTypes] = await Promise.all([
       db.query(
-        `select r.*, p.id as player_id, p.first_name, p.last_name from role r
-         left join player p on p.role_id = r.id where r.game_id = $1 order by r.title`, [id]),
+        `select r.*, (select string_agg(trim(p.first_name || ' ' || p.last_name), ', ' order by p.id) from player p where p.role_id = r.id) as players, (select count(*)::int from player p where p.role_id = r.id) as player_count
+         from role r where r.game_id = $1 order by r.title`, [id]),
       db.query('select * from start_account where game_id = $1 order by title', [id]),
       db.query('select * from price_item where game_id = $1 order by title', [id]),
       db.query('select st.id, st.name, st.login from game_staff gs join staff st on st.id = gs.staff_id where gs.game_id = $1 order by st.name', [id]),
@@ -454,7 +454,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   app.post('/api/admin/roles/:rowId/code', async (req) => {
     const id = Number((req.params as any).rowId);
     await needRow(req, 'role', id);
-    return { code: await games.regenerateCode(db, id) };
+    return { code: await games.setRoleCode(db, id, (req.body as any)?.code) };
   });
 
   app.post('/api/admin/roles/:rowId/release', async (req) => {

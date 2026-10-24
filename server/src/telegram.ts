@@ -165,12 +165,12 @@ export function createBot(db: Db, token: string) {
 
   async function showRoles(ctx: any, gameId: number, edit: boolean) {
     const roles = await db.query(
-      `select r.id, r.title, (p.id is not null) as taken from role r join game g on g.id = r.game_id
-       left join player p on p.role_id = r.id where r.game_id = $1 and g.status = 'active' and g.visible order by r.title`,
+      `select r.id, r.title from role r join game g on g.id = r.game_id
+       where r.game_id = $1 and g.status = 'active' and g.visible order by r.title`,
       [gameId],
     );
     const kb = new InlineKeyboard();
-    for (const r of roles) kb.text(r.taken ? `${r.title} · войти по коду` : r.title, `r:${gameId}:${r.id}`).row();
+    for (const r of roles) kb.text(r.title, `r:${gameId}:${r.id}`).row();
     const [g] = await db.query('select title from game where id = $1', [gameId]);
     const text = `Добро пожаловать в игровой банк!\n${g?.title ?? ''}\n\nВыберите свою роль:`;
     return edit ? ctx.editMessageText(text, { reply_markup: kb }) : ctx.reply(text, { reply_markup: kb });
@@ -185,18 +185,17 @@ export function createBot(db: Db, token: string) {
     const gameId = Number(ctx.match[1]);
     const roleId = Number(ctx.match[2]);
     const [role] = await db.query(
-      `select r.title, r.preset_first_name, r.preset_last_name, (p.id is not null) as taken
-       from role r left join player p on p.role_id = r.id where r.id = $1 and r.game_id = $2`,
+      `select r.title, r.preset_first_name, r.preset_last_name from role r where r.id = $1 and r.game_id = $2`,
       [roleId, gameId],
     );
     await ctx.answerCallbackQuery();
     if (!role) return ctx.reply('Роль не найдена');
-    if (role.taken || (role.preset_first_name && role.preset_last_name)) {
+    if (role.preset_first_name) {
       states.set(ctx.chat!.id, { step: 'code', gameId, roleId, firstName: role.preset_first_name, lastName: role.preset_last_name });
       return ctx.editMessageText(`Роль «${role.title}». Введите код роли — 4 цифры от ведущего.`);
     }
     states.set(ctx.chat!.id, { step: 'name', gameId, roleId });
-    return ctx.editMessageText(`Роль «${role.title}». Напишите имя и фамилию.`);
+    return ctx.editMessageText(`Роль «${role.title}». Как вас зовут?`);
   });
 
   // ----- Menu -----
@@ -367,7 +366,7 @@ export function createBot(db: Db, token: string) {
 
     if (st.step === 'name') {
       const [firstName, ...rest] = text.split(/\s+/);
-      if (!firstName || !rest.length) return ctx.reply('Напишите имя и фамилию через пробел.');
+      if (!firstName) return ctx.reply('Напишите, как вас зовут.');
       states.set(ctx.chat.id, { step: 'code', gameId: st.gameId, roleId: st.roleId, firstName, lastName: rest.join(' ') });
       return ctx.reply('Теперь код роли — 4 цифры от ведущего.');
     }

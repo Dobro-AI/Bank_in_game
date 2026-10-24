@@ -1,11 +1,12 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, newKey, useLive, useLoad } from '../api';
-import { AdjustIcon, BadgeIcon, BoxIcon, BranchIcon, ChartIcon, FlagIcon, GearIcon, SparkIcon, TableIcon, TransferIcon, UsersIcon } from '../icons';
+import { AdjustIcon, BadgeIcon, BoxIcon, BranchIcon, ChartIcon, FlagIcon, GearIcon, KeyIcon, SparkIcon, TableIcon, TransferIcon, UsersIcon } from '../icons';
 import { Confirm, Empty, ErrorText, Field, Money } from '../ui';
 import type { Staff } from './AdminApp';
 import { Assistant } from './Assistant';
 import { Capacity } from './Capacity';
+import { Codes } from './Codes';
 import { Config } from './Config';
 import { AdminShell, NavItem } from './Shell';
 import { Sheet } from './Sheet';
@@ -15,12 +16,13 @@ export interface GameData {
   can: { config: boolean; run: boolean; super: boolean };
 }
 
-type Section = 'summary' | 'transfers' | 'people' | 'adjust' | 'capacity' | 'tacts' | 'sheet' | 'config' | 'staff' | 'branches' | 'assistant';
+type Section = 'summary' | 'transfers' | 'people' | 'codes' | 'adjust' | 'capacity' | 'tacts' | 'sheet' | 'config' | 'staff' | 'branches' | 'assistant';
 
 const SECTIONS: Record<Section, { label: string; icon: ReactNode }> = {
   summary: { label: 'Сводка', icon: <ChartIcon /> },
   transfers: { label: 'Переводы', icon: <TransferIcon /> },
   people: { label: 'Участники', icon: <UsersIcon /> },
+  codes: { label: 'Коды', icon: <KeyIcon /> },
   adjust: { label: 'Начисления', icon: <AdjustIcon /> },
   capacity: { label: 'Мощности', icon: <BoxIcon /> },
   sheet: { label: 'Google-таблица', icon: <TableIcon /> },
@@ -46,7 +48,7 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
   const isRoot = d.game.kind === 'root';
   const sections: Section[] = isRoot
     ? ['config', 'branches', 'assistant']
-    : ['summary', 'transfers', 'capacity', 'people', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'sheet', 'assistant', 'config', 'staff'];
+    : ['summary', 'transfers', 'capacity', 'people', 'codes', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'sheet', 'assistant', 'config', 'staff'];
   const current = sections.includes(params.section as Section) ? (params.section as Section) : sections[0];
   const ctx = { id, d, accounts: accounts.data ?? [], tacts: tacts.data ?? [], tick, reload: () => { data.reload(); accounts.reload(); tacts.reload(); } };
   const items: NavItem[] = sections.map((k, i) => ({
@@ -69,6 +71,7 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
       {current === 'summary' && <Summary ctx={ctx} />}
       {current === 'transfers' && <Transfers ctx={ctx} />}
       {current === 'people' && <People ctx={ctx} />}
+      {current === 'codes' && <Codes ctx={ctx} />}
       {current === 'adjust' && <Adjust ctx={ctx} />}
       {current === 'capacity' && <Capacity ctx={ctx} />}
       {current === 'sheet' && <Sheet ctx={ctx} />}
@@ -134,7 +137,7 @@ function Filters({ ctx, f, set, noTactAll }: { ctx: Ctx; f: F; set: (f: F) => vo
       <Field label="Игрок">
         <select value={f.role ?? ''} onChange={(e) => set({ ...f, role: Number(e.target.value) || undefined })}>
           <option value="">Все игроки</option>
-          {roles.map((r) => <option key={r.id} value={r.id}>{r.player_id ? `${r.first_name} ${r.last_name} (${r.title})` : r.title}</option>)}
+          {roles.map((r) => <option key={r.id} value={r.id}>{r.players ? `${r.title} (${r.players})` : r.title}</option>)}
         </select>
       </Field>
       <Field label="Счёт">
@@ -237,13 +240,13 @@ function People({ ctx }: { ctx: Ctx }) {
       <ErrorText error={error} />
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Роль</th><th>Код</th><th>Игрок</th><th>Счета</th><th></th></tr></thead>
+          <thead><tr><th>Роль</th><th>Код</th><th>Игроки</th><th>Счета</th><th></th></tr></thead>
           <tbody>
             {ctx.d.roles.map((r) => (
               <tr key={r.id}>
                 <td>{r.title}</td>
                 <td><span className="code">{r.code}</span></td>
-                <td>{r.player_id ? `${r.first_name} ${r.last_name}` : <span className="muted">не занята</span>}</td>
+                <td>{r.players || <span className="muted">никто не вошёл</span>}</td>
                 <td>
                   {accountsOf(r.id).map((a) => {
                     const m = a.members.find((x: any) => x.roleId === r.id);
@@ -260,7 +263,7 @@ function People({ ctx }: { ctx: Ctx }) {
                   {ctx.d.can.config && (
                     <div className="row">
                       <button className="btn small" onClick={() => act(() => api(`/api/admin/roles/${r.id}/code`, { body: {} }))}>Новый код</button>
-                      {r.player_id && <button className="btn small danger" onClick={() => setRelease(r)}>Сбросить</button>}
+                      {r.player_count > 0 && <button className="btn small danger" onClick={() => setRelease(r)}>Сбросить</button>}
                     </div>
                   )}
                 </td>
@@ -271,9 +274,9 @@ function People({ ctx }: { ctx: Ctx }) {
         {ctx.d.roles.length === 0 && <Empty>Ролей нет — добавьте их в настройках</Empty>}
       </div>
       {release && (
-        <Confirm title="Сбросить привязку роли?" confirmText="Сбросить" onCancel={() => setRelease(undefined)}
+        <Confirm title="Отключить всех игроков роли?" confirmText="Сбросить" onCancel={() => setRelease(undefined)}
           onConfirm={() => { act(() => api(`/api/admin/roles/${release.id}/release`, { body: {} })); setRelease(undefined); }}>
-          {release.first_name} {release.last_name} потеряет доступ к роли «{release.title}». Счета роли сохранятся и перейдут тому, кто займёт роль.
+          {release.players} {release.player_count > 1 ? 'потеряют' : 'потеряет'} доступ к роли «{release.title}». Счета роли сохранятся: войти снова можно по коду роли.
         </Confirm>
       )}
     </>

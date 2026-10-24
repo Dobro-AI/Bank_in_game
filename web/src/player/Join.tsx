@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { api, useLoad } from '../api';
 import { ErrorText, Field } from '../ui';
+import { Select } from '../Select';
 import { telegramInitData } from '../telegram';
 
 interface Game { id: number; title: string; hosts: string }
@@ -13,7 +14,7 @@ async function openRoles(): Promise<GameRoles[]> {
   return Promise.all(games.map(async (game) => ({ game, roles: await api<Role[]>(`/api/public/games/${game.id}/roles`) })));
 }
 
-/** One screen: name and surname, role, 4-digit role code. A taken role re-enters by code only. */
+/** One screen: name and surname, role, 4-digit role code. Any number of people may join one role. */
 export function Join({ onJoined }: { onJoined: () => void }) {
   const data = useLoad(openRoles, []);
   const [name, setName] = useState('');
@@ -32,8 +33,6 @@ export function Join({ onJoined }: { onJoined: () => void }) {
   }, [pick, groups]);
 
   const words = name.trim().split(/\s+/).filter(Boolean);
-  const needName = !chosen?.role.taken;
-  const nameOk = !needName || words.length >= 2;
 
   function choose(value: string) {
     setPick(value);
@@ -72,7 +71,10 @@ export function Join({ onJoined }: { onJoined: () => void }) {
     );
   }
 
-  const label = (r: Role) => `${r.title}${r.description ? ` — ${r.description}` : ''}${r.taken ? ' (уже занята — вход по коду)' : ''}`;
+  // Roles are never blocked: a whole team may sign in to one role with the same code.
+  const options = groups.flatMap((g) => g.roles.map((r) => ({
+    value: `${g.game.id}:${r.id}`, label: r.title, sub: r.description || undefined, group: single ? undefined : g.game.title,
+  })));
 
   return (
     <main className="page narrow center-page">
@@ -80,29 +82,19 @@ export function Join({ onJoined }: { onJoined: () => void }) {
       <p className="muted">{single ? single.title : 'Войдите в игру'}</p>
       <ErrorText error={data.error} />
       <form className="stack" onSubmit={submit}>
-        <Field label="Имя и фамилия" hint={needName ? undefined : 'Роль уже занята: достаточно кода'}>
-          <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="Иван Петров"
-            required={needName} />
+        <Field label="Как вас зовут">
+          <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="Имя" required />
         </Field>
-        <Field label="Роль">
-          <select value={pick} onChange={(e) => choose(e.target.value)} required>
-            <option value="">Выберите роль…</option>
-            {single
-              ? groups[0].roles.map((r) => <option key={r.id} value={`${single.id}:${r.id}`}>{label(r)}</option>)
-              : groups.map((g) => (
-                <optgroup key={g.game.id} label={g.game.title}>
-                  {g.roles.map((r) => <option key={r.id} value={`${g.game.id}:${r.id}`}>{label(r)}</option>)}
-                </optgroup>
-              ))}
-          </select>
-        </Field>
+        <div className="field">
+          <span className="field-label" id="role-label">Роль</span>
+          <Select value={pick} onChange={choose} options={options} placeholder="Выберите роль" ariaLabel="Роль" />
+        </div>
         <Field label="Код роли" hint="4 цифры, их выдаёт игротехник">
           <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
             inputMode="numeric" pattern="\d{4}" required autoComplete="one-time-code" className="code" />
         </Field>
-        {needName && name.trim() && words.length < 2 && <p className="small muted">Напишите имя и фамилию через пробел.</p>}
         <ErrorText error={error} />
-        <button className="btn primary block" disabled={busy || !chosen || code.length !== 4 || !nameOk}>
+        <button className="btn primary block" disabled={busy || !chosen || code.length !== 4 || !words.length}>
           {busy ? 'Проверяем…' : 'Войти'}
         </button>
       </form>

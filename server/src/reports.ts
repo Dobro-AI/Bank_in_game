@@ -23,19 +23,17 @@ export async function tacts(db: Tx, gameId: number) {
 /** Owner and co-owner names per account, keyed by account id. */
 export async function membersByAccount(db: Tx, gameId: number) {
   const rows = await db.query(
-    `select m.account_id, m.role_id, m.member, m.pin_ok, r.title as role_title,
-            p.id as player_id, p.first_name, p.last_name
+    `select m.account_id, m.role_id, m.member, m.pin_ok, r.title as role_title, (select string_agg(trim(p.first_name || ' ' || p.last_name), ', ' order by p.id) from player p where p.role_id = r.id) as players
      from account_member m
      join account a on a.id = m.account_id
      join role r on r.id = m.role_id
-     left join player p on p.role_id = r.id
      where a.game_id = $1
      order by m.member desc, r.title`,
     [gameId],
   );
   const map = new Map<number, any[]>();
   for (const r of rows) {
-    const name = r.player_id ? `${r.first_name} ${r.last_name}` : '';
+    const name = r.players ?? '';
     const item = { roleId: r.role_id, roleTitle: r.role_title, playerName: name, member: r.member, pinOk: r.pin_ok };
     map.set(r.account_id, [...(map.get(r.account_id) ?? []), item]);
   }

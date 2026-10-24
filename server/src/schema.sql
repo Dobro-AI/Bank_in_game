@@ -283,3 +283,7 @@ create table if not exists staff_link_code (
 
 -- Whether players can see and join the game now (e.g. morning game open, afternoon game closed).
 alter table game add column if not exists visible boolean not null default true;
+
+-- Several people may play one role (a team of one company): one player row per person.
+alter table player drop constraint if exists player_role_id_key;
+create index if not exists player_role_idx on player (role_id);

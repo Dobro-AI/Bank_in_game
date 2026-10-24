@@ -27,3 +27,4 @@ export const GridIcon = () => <Svg><rect x="4" y="4" width="7" height="7" rx="1.
 export const LogoutIcon = () => <Svg><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4" /></Svg>;
 export const BoxIcon = () => <Svg><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" /><path d="M3 7.5 12 12l9-4.5M12 12v9" /></Svg>;
 export const TableIcon = () => <Svg><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M3 14.5h18M9 9v11" /></Svg>;
+export const KeyIcon = () => <Svg><circle cx="8" cy="15" r="4" /><path d="m11 12 9-9M17 6l3 3M15 8l2 2" /></Svg>;

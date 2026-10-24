@@ -83,8 +83,22 @@ describe('вход игрока', () => {
       .rejects.toThrow('Неверный код');
     const p = await join('Мэр');
     expect((await accountOf(p.roleId, 'individual')).balance).toBe(100);
-    const again = await games.joinRole(db, { gameId: branchId, roleId: r.id, code: r.code });
+    // The same person again (new phone) gets their player back; the role is never blocked.
+    const again = await games.joinRole(db, { gameId: branchId, roleId: r.id, firstName: 'иван', lastName: 'мэр', code: r.code });
     expect(again.id).toBe(p.playerId);
+  });
+
+  it('в одну роль входят несколько человек, счета роли у них общие', async () => {
+    const a = await join('Мэр', 'Аня', 'Иванова');
+    const r = await roleIn(branchId, 'Мэр');
+    const b = await games.joinRole(db, { gameId: branchId, roleId: r.id, firstName: 'Борис', lastName: '', code: r.code });
+    expect(b.id).not.toBe(a.playerId);
+    const bCtx = { playerId: b.id, roleId: r.id, gameId: branchId };
+    const acc = await accountOf(r.id, 'individual');
+    expect(acc.balance).toBe(100);
+    const [mayoralty] = await db.query("select id from account where game_id = $1 and title = 'Мэрия'", [branchId]);
+    const { transfer: t } = await playerTransfer(db, bCtx, { fromAccountId: mayoralty.id, toAccountId: acc.id, amount: 10 });
+    expect(t.initiator_player_id).toBe(b.id);
   });
 });
 
@@ -191,5 +205,18 @@ describe('такты', () => {
     const live = await summary(db, branchId);
     const row = live.rows.find((r: any) => r.accountId === from);
     expect(row).toMatchObject({ balanceStart: 75, received: 0, sent: 5, balanceEnd: 70 });
+  });
+});
+
+describe('коды ролей', () => {
+  it('ведущий задаёт свой код или новый случайный; коды в игре не повторяются', async () => {
+    const mayor = await roleIn(branchId, 'Мэр');
+    const banker = await roleIn(branchId, 'Банкир');
+    expect(await games.setRoleCode(db, mayor.id, '1234')).toBe('1234');
+    await expect(games.setRoleCode(db, banker.id, '1234')).rejects.toThrow('уже у другой роли');
+    await expect(games.setRoleCode(db, banker.id, '12a4')).rejects.toThrow('4 цифры');
+    const fresh = await games.setRoleCode(db, banker.id);
+    expect(fresh).toMatch(/^\d{4}$/);
+    expect(fresh).not.toBe('1234');
   });
 });

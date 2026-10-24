@@ -1,4 +1,4 @@
-/* Player bank: light neutral surfaces, one yellow accent for the main action. */
+/* Player bank: light neutral surfaces, one emerald accent for the main action. */
 .bank {
   --bg: #f5f5f5;
   --surface: #ffffff;
@@ -7,8 +7,10 @@
   --line: #ececec;
   --accent: #0a0a0a;
   --accent-soft: #f3f4f6;
-  --cta: #ffdd2d;
-  --cta-hover: #fcd116;
+  --cta: #047857;
+  --cta-hover: #065f46;
+  --cta-text: #ffffff;
+  --cta-soft: #ecfdf5;
   --in: #15803d;
   --nav-h: 64px;
   background: var(--bg);
@@ -17,7 +19,7 @@
 }
 .bank a { color: inherit; }
 
-.bank .btn.primary { background: var(--cta); border-color: var(--cta); color: var(--text); }
+.bank .btn.primary { background: var(--cta); border-color: var(--cta); color: var(--cta-text); }
 .bank .btn.primary:hover { background: var(--cta-hover); border-color: var(--cta-hover); }
 .bank .btn { border-radius: 12px; }
 .bank .btn.link { color: var(--text); }
@@ -76,7 +78,7 @@
   display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex-shrink: 0;
 }
 .avatar.large { width: 56px; height: 56px; font-size: 20px; }
-.avatar.accent { background: var(--cta); }
+.avatar.accent { background: var(--cta); color: var(--cta-text); }
 
 /* ---------- Home ---------- */
 
@@ -89,7 +91,7 @@
   background: var(--surface); border-radius: 16px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px;
 }
 .quick.inline { flex-direction: row; display: inline-flex; padding: 8px 16px 8px 8px; margin-top: 16px; }
-.quick-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--cta); display: inline-flex; align-items: center; justify-content: center; }
+.quick-icon { width: 40px; height: 40px; border-radius: 50%; background: var(--cta); color: var(--cta-text); display: inline-flex; align-items: center; justify-content: center; }
 .card-list { display: flex; flex-direction: column; gap: 8px; }
 .account-card {
   display: flex; align-items: center; gap: 12px; padding: 16px; background: var(--surface);
@@ -165,7 +167,7 @@
 @media (min-width: 900px) { .sticky-action { bottom: 16px; } }
 
 .success { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding-top: 48px; }
-.success-icon { width: 64px; height: 64px; border-radius: 50%; background: var(--cta); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px; }
+.success-icon { width: 64px; height: 64px; border-radius: 50%; background: var(--cta); color: var(--cta-text); display: inline-flex; align-items: center; justify-content: center; margin-bottom: 8px; }
 
 /* ---------- Account, settings ---------- */
 
@@ -220,8 +222,8 @@ a.settings-row:hover, button.settings-row:hover { background: #fcfcfc; }
 .bank .table-wrap, .bank .panel, .bank .list, .bank .chat { border: none; border-radius: 16px; }
 .bank th { background: var(--surface); }
 .bank tfoot td { background: #fafafa; }
-.bank .banner { background: #fff6c2; border-radius: 16px; }
-.bank .bubble.user { background: #fff3b0; }
+.bank .banner { background: var(--cta-soft); border-radius: 16px; }
+.bank .bubble.user { background: #d1fae5; }
 .bank .proposal { border: 2px solid var(--text); }
 .bank .cell-input { border-radius: 8px; }
 .bank h2 { font-size: 20px; }
@@ -246,3 +248,31 @@ a.settings-row:hover, button.settings-row:hover { background: #fcfcfc; }
 .switch input:checked { background: var(--text); }
 .switch input:checked::after { transform: translateX(18px); }
 .switch input:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+/* ---------- Drop-down (Select.tsx): never wider than its field ---------- */
+.dd { position: relative; width: 100%; }
+.dd-button {
+  width: 100%; min-height: 48px; display: flex; align-items: center; gap: 8px; text-align: left;
+  padding: 8px 12px; background: var(--surface, #fff); border: 1px solid #e5e7eb; border-radius: 12px;
+  font: inherit; color: var(--text, #0a0a0a); cursor: pointer;
+}
+.dd-button:focus-visible { outline: 2px solid var(--text, #0a0a0a); outline-offset: 2px; }
+.dd.open .dd-button { border-color: var(--text, #0a0a0a); }
+.dd-value { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dd-placeholder { flex: 1; color: var(--muted, #6b7280); }
+.dd-label { overflow-wrap: anywhere; }
+.dd-sub { font-size: 13px; color: var(--muted, #6b7280); overflow-wrap: anywhere; }
+.dd-chevron { flex-shrink: 0; color: var(--muted, #6b7280); transition: transform 0.15s; }
+.dd.open .dd-chevron { transform: rotate(180deg); }
+.dd-list {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none;
+  background: var(--surface, #fff); border: 1px solid #e5e7eb; border-radius: 12px; max-height: min(360px, 55vh); overflow-y: auto;
+  box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+}
+.dd-group { padding: 8px 12px 4px; font-size: 12px; font-weight: 600; color: var(--muted, #6b7280); }
+.dd-option { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; min-height: 44px; border-radius: 8px; cursor: pointer; }
+.dd-option.active { background: #f3f4f6; }
+.dd-option[aria-selected='true'] .dd-label { font-weight: 600; }
+.dd-option.disabled { opacity: 0.45; cursor: default; }
+.dd-empty { padding: 12px; color: var(--muted, #6b7280); }
+.codes-text { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 14px; background: var(--surface); }

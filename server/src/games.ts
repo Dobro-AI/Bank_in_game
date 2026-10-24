@@ -275,11 +275,28 @@ export async function updateRules(db: Db, gameId: number, rules: unknown) {
   });
 }
 
-export async function regenerateCode(db: Db, roleId: number) {
-  const [r] = await db.query('update role set code = $2 where id = $1 returning code', [roleId, newRoleCode()]);
-  if (!r) throw new AppError('Роль не найдена', 404);
-  return r.code as string;
+/**
+ * Sets a role's code: the given 4 digits, or a new random one. Codes are unique within a game so
+ * a code read out loud can never open a different role.
+ */
+export async function setRoleCode(db: Db, roleId: number, code?: string) {
+  return db.transaction(async (tx) => {
+    const [role] = await tx.query('select id, game_id from role where id = $1 for update', [roleId]);
+    if (!role) throw new AppError('Роль не найдена', 404);
+    const used = new Set((await tx.query('select code from role where game_id = $1 and id <> $2', [role.game_id, roleId])).map((r) => r.code));
+    let next = code === undefined || code === '' ? '' : String(code).trim();
+    if (next) {
+      if (!isFourDigits(next)) throw new AppError('Код — ровно 4 цифры');
+      if (used.has(next)) throw new AppError('Такой код уже у другой роли этой игры');
+    } else {
+      do next = newRoleCode(); while (used.has(next));
+    }
+    await tx.query('update role set code = $2 where id = $1', [roleId, next]);
+    return next;
+  });
 }
+
+export const regenerateCode = (db: Db, roleId: number) => setRoleCode(db, roleId);
 
 async function openStartAccount(tx: Tx, gameId: number, sa: any) {
   const [acc] = await tx.query(
@@ -347,25 +364,28 @@ export async function joinRole(
     if (!role) throw new AppError('Роль не найдена', 404);
     if (!role.code || String(body.code) !== role.code) throw new AppError('Неверный код роли', 403);
 
-    const [existing] = await tx.query('select * from player where role_id = $1', [role.id]);
-    if (existing) return existing;
-
     const first = text(body.firstName, 100) || role.preset_first_name;
-    const last = text(body.lastName, 100) || role.preset_last_name;
-    if (!first || !last) throw new AppError('Укажите имя и фамилию');
+    const last = text(body.lastName, 100) || (body.firstName ? '' : role.preset_last_name);
+    if (!first) throw new AppError('Укажите имя');
+    // Several people may play one role; the same person signing in again (new phone, Telegram)
+    // is recognised by name and gets their own player back.
+    const [same] = await tx.query(
+      'select * from player where role_id = $1 and lower(first_name) = lower($2) and lower(last_name) = lower($3)',
+      [role.id, first, last],
+    );
+    if (same) return same;
     const [player] = await tx.query(
       'insert into player (game_id, role_id, first_name, last_name) values ($1, $2, $3, $4) returning *',
       [g.id, role.id, first, last],
     );
-    const title = `${first} ${last}`;
+    const title = `${first} ${last}`.trim();
     const [acc] = await tx.query(
       `select a.id from account a join account_member m on m.account_id = a.id
        where a.kind = 'individual' and m.role_id = $1`,
       [role.id],
     );
-    if (acc) {
-      await tx.query('update account set title = $2 where id = $1', [acc.id, title]);
-    } else {
+    // The role's personal account is shared by its team and keeps the first player's name.
+    if (!acc) {
       const [created] = await tx.query(
         "insert into account (game_id, kind, title) values ($1, 'individual', $2) returning id",
         [g.id, title],
