@@ -341,6 +341,8 @@ export async function joinRole(
   return db.transaction(async (tx) => {
     const [g] = await tx.query("select * from game where id = $1 and kind = 'branch'", [body.gameId]);
     if (!g || g.status !== 'active') throw new AppError('Игра не найдена или не запущена', 404);
+    // A closed game keeps its players but takes no new sign-ins.
+    if (!g.visible) throw new AppError('Игра сейчас закрыта ведущим', 403);
     const [role] = await tx.query('select * from role where id = $1 and game_id = $2 for update', [body.roleId, g.id]);
     if (!role) throw new AppError('Роль не найдена', 404);
     if (!role.code || String(body.code) !== role.code) throw new AppError('Неверный код роли', 403);

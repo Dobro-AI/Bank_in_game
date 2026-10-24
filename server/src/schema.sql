@@ -280,3 +280,6 @@ create table if not exists staff_link_code (
   staff_id int not null references staff(id) on delete cascade,
   expires_at timestamptz not null
 );
+
+-- Whether players can see and join the game now (e.g. morning game open, afternoon game closed).
+alter table game add column if not exists visible boolean not null default true;

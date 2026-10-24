@@ -168,7 +168,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     return db.query(
       `select g.id, g.title, coalesce(string_agg(s.name, ', ' order by s.name), '') as hosts
        from game g left join game_staff gs on gs.game_id = g.id left join staff s on s.id = gs.staff_id
-       where g.kind = 'branch' and g.status = 'active' group by g.id order by g.title`,
+       where g.kind = 'branch' and g.status = 'active' and g.visible group by g.id order by g.title`,
     );
   });
 
@@ -178,7 +178,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
       `select r.id, r.title, r.description, r.preset_first_name as "presetFirstName", r.preset_last_name as "presetLastName",
               (p.id is not null) as taken
        from role r join game g on g.id = r.game_id left join player p on p.role_id = r.id
-       where r.game_id = $1 and g.kind = 'branch' and g.status = 'active' order by r.title`,
+       where r.game_id = $1 and g.kind = 'branch' and g.status = 'active' and g.visible order by r.title`,
       [id],
     );
   });
@@ -376,6 +376,22 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   app.post('/api/admin/games', async (req) => {
     await needSuper(req);
     return games.createRootGame(db, (req.body as any).title);
+  });
+
+  /** Super host: open / close a game for players, and rename it. */
+  app.patch('/api/admin/games/:id', async (req) => {
+    await needSuper(req);
+    const id = Number((req.params as any).id);
+    const b = req.body as any;
+    if ('visible' in b) await db.query('update game set visible = $2 where id = $1', [id, Boolean(b.visible)]);
+    if ('title' in b) {
+      const title = String(b.title ?? '').trim().slice(0, 200);
+      if (!title) throw new AppError('Укажите название игры');
+      await db.query('update game set title = $2 where id = $1', [id, title]);
+    }
+    changed(id);
+    const [g] = await db.query('select * from game where id = $1', [id]);
+    return g;
   });
 
   app.post('/api/admin/games/:id/branches', async (req) => {

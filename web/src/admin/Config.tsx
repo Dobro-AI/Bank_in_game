@@ -53,6 +53,7 @@ export function Config({ ctx }: { ctx: Ctx }) {
           уже открытые счета они не меняют (для этого есть начисления).
         </p>
       )}
+      {ctx.d.can.super && <GameTitle ctx={ctx} />}
       <Rules ctx={ctx} />
       <Editor ctx={ctx} title="Роли" slug="roles" fields={ROLE_FIELDS} rows={d.roles} />
       <Editor ctx={ctx} title="Активы и мощности" slug="asset-types" fields={ASSET_FIELDS} rows={d.assetTypes}
@@ -61,6 +62,29 @@ export function Config({ ctx }: { ctx: Ctx }) {
       <Editor ctx={ctx} title="Прайс игротехника (CAPEX)" slug="price-items" fields={PRICE_FIELDS} rows={d.priceItems}
         hint="Заготовки при переводе Игротехнику: что покупают, за сколько и в каком количестве. Если позиция даёт актив, он сам добавляется покупателю в учёт мощностей." />
     </div>
+  );
+}
+
+/** Super host renames the game (players see this name when choosing a game). */
+function GameTitle({ ctx }: { ctx: Ctx }) {
+  const [title, setTitle] = useState(ctx.d.game.title);
+  const [error, setError] = useState<string>();
+  async function save() {
+    setError(undefined);
+    try {
+      await api(`/api/admin/games/${ctx.id}`, { method: 'PATCH', body: { title } });
+      ctx.reload();
+    } catch (e: any) { setError(e.message); }
+  }
+  return (
+    <section className="section stack">
+      <h2 style={{ margin: 0 }}>Название игры</h2>
+      <div className="row" style={{ flexWrap: 'nowrap' }}>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Название игры" maxLength={200} />
+        <button className="btn primary" disabled={!title.trim() || title === ctx.d.game.title} onClick={save}>Сохранить</button>
+      </div>
+      <ErrorText error={error} />
+    </section>
   );
 }
 

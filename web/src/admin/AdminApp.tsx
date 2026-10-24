@@ -81,14 +81,29 @@ function Games({ staff }: { staff: Staff }) {
     }
   }
 
+  async function setVisible(id: number, visible: boolean) {
+    setError(undefined);
+    try {
+      await api(`/api/admin/games/${id}`, { method: 'PATCH', body: { visible } });
+      games.reload();
+    } catch (e: any) { setError(e.message); }
+  }
+
+  // Super host: which game players see now, and who runs it.
   const branchRow = (b: any) => (
-    <Link key={b.id} to={`/admin/g/${b.id}`} className="list-item">
-      <div className="grow">
+    <div key={b.id} className="list-item game-row">
+      <Link to={`/admin/g/${b.id}`} className="grow game-link">
         <div className="list-title">{b.title}</div>
-        <div className="list-sub">Ведущий: {b.hosts || 'не назначен'}</div>
-      </div>
-      <span className={b.status === 'active' ? 'chip accent' : 'chip'}>{STATUS[b.status]}</span>
-    </Link>
+        <div className="list-sub">Игротехники: {b.hosts || 'не назначены'}</div>
+      </Link>
+      {b.status !== 'active' ? <span className="chip">{STATUS[b.status]}</span> : staff.kind === 'super' ? (
+        <label className="switch">
+          <input type="checkbox" checked={b.visible} onChange={(e) => setVisible(b.id, e.target.checked)} />
+          <span>{b.visible ? 'Открыта игрокам' : 'Закрыта'}</span>
+        </label>
+      ) : <span className={b.visible ? 'chip accent' : 'chip'}>{b.visible ? 'открыта' : 'закрыта'}</span>}
+      {staff.kind === 'super' && <Link to={`/admin/g/${b.id}/staff`} className="btn small">Игротехники</Link>}
+    </div>
   );
 
   return (

@@ -121,7 +121,7 @@ export function createBot(db: Db, token: string) {
   };
 
   async function startJoin(ctx: any) {
-    const list = await db.query("select id, title from game where kind = 'branch' and status = 'active' order by title");
+    const list = await db.query("select id, title from game where kind = 'branch' and status = 'active' and visible order by title");
     if (!list.length) return ctx.reply('Сейчас нет запущенных игр. Дождитесь, пока ведущий запустит игру.');
     const kb = new InlineKeyboard();
     for (const g of list) kb.text(g.title, `g:${g.id}`).row();
@@ -165,7 +165,7 @@ export function createBot(db: Db, token: string) {
     const gameId = Number(ctx.match[1]);
     const roles = await db.query(
       `select r.id, r.title, (p.id is not null) as taken from role r join game g on g.id = r.game_id
-       left join player p on p.role_id = r.id where r.game_id = $1 and g.status = 'active' order by r.title`,
+       left join player p on p.role_id = r.id where r.game_id = $1 and g.status = 'active' and g.visible order by r.title`,
       [gameId],
     );
     const kb = new InlineKeyboard();

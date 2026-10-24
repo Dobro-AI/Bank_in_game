@@ -112,7 +112,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
       const { id, created } = await seedGame(db, g);
       console.log(`${created ? 'Создана' : 'Уже есть'}: ${g.title}`);
       if (host) {
-        const branch = await games.createBranch(db, id, `${g.title} — смена 1`, [host.id]);
+        const branch = await games.createBranch(db, id, g.title, [host.id]);
         await games.launchBranch(db, branch.id);
         console.table(await db.query('select title as "роль", code as "код" from role where game_id = $1 order by title', [branch.id]));
       }
