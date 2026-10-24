@@ -17,7 +17,7 @@ import * as sheets from './sheets.js';
 import * as telegram from './telegram.js';
 import * as hostBot from './telegram-host.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
-import { deleteTransfer, editTransfer, hostAdjust, payFixedPrice, playerTransfer, transfer, transferEvents } from './transfers.js';
+import { deleteTransfer, editTransfer, hostAdjust, intoTact, payFixedPrice, playerTransfer, transfer, transferEvents } from './transfers.js';
 
 const STAFF_COOKIE = 'sid';
 const PLAYER_COOKIE = 'psid';
@@ -35,6 +35,10 @@ export function buildApp(
     bus.emit(`game:${gameId}`);
     sheets.scheduleSync(db, gameId);
   };
+  // Edits made right in the Google sheet reach the bank: screens refresh; the sheets are rewritten by the sync.
+  sheets.onSheetEdits((gameId) => bus.emit(`game:${gameId}`));
+  const stopPolling = sheets.startPolling(db);
+  app.addHook('onClose', async () => stopPolling());
   // A refused transfer changes nothing but the sheet's list of actions.
   const onRefused = (row: any) => sheets.scheduleSync(db, row.game_id);
   transferEvents.on('refused', onRefused);
@@ -171,11 +175,13 @@ export function buildApp(
 
   // ---------- Public: choose game and role ----------
 
+  /** Open games, one per team of game masters; the oldest team (the admin's) comes first and is the default. */
   app.get('/api/public/games', async () => {
     return db.query(
-      `select g.id, g.title, coalesce(string_agg(s.name, ', ' order by s.name), '') as hosts
+      `select g.id, g.title, coalesce(string_agg(s.name, ', ' order by s.name), '') as hosts,
+              coalesce(nullif(g.team, ''), string_agg(s.name, ' и ' order by s.name), '') as team
        from game g left join game_staff gs on gs.game_id = g.id left join staff s on s.id = gs.staff_id
-       where g.kind = 'branch' and g.status = 'active' and g.visible group by g.id order by g.title`,
+       where g.kind = 'branch' and g.status = 'active' and g.visible group by g.id order by g.parent_id, g.id`,
     );
   });
 
@@ -382,7 +388,7 @@ export function buildApp(
               exists (select 1 from game_staff m where m.game_id = g.id and m.staff_id = $1) as mine
        from game g left join game_staff gs on gs.game_id = g.id left join staff st on st.id = gs.staff_id
        ${s.kind === 'super' ? '' : 'where g.id in (select game_id from game_staff where staff_id = $1)'}
-       group by g.id order by g.kind desc, g.title`,
+       group by g.id order by g.kind desc, g.title, g.id`,
       [s.id],
     );
     return rows;
@@ -398,7 +404,14 @@ export function buildApp(
     await needSuper(req);
     const id = Number((req.params as any).id);
     const b = req.body as any;
-    if ('visible' in b) await db.query('update game set visible = $2 where id = $1', [id, Boolean(b.visible)]);
+    // Every team plays the same game at the same time: opening or closing a game applies to all its branches.
+    if ('visible' in b) {
+      await db.query(
+        `update game set visible = $2 where id = $1
+           or (kind = 'branch' and parent_id = (select parent_id from game where id = $1 and kind = 'branch'))`,
+        [id, Boolean(b.visible)],
+      );
+    }
     if ('title' in b) {
       const title = String(b.title ?? '').trim().slice(0, 200);
       if (!title) throw new AppError('Укажите название игры');
@@ -630,7 +643,7 @@ export function buildApp(
     const { staff } = await needGame(req, id, 'run');
     const b = req.body as any;
     const res = await hostAdjust(db, id, staff.id, {
-      accountId: Number(b.accountId), direction: b.direction, amount: b.amount, comment: b.comment, idempotencyKey: b.idempotencyKey,
+      accountId: Number(b.accountId), direction: b.direction, amount: b.amount, comment: b.comment, idempotencyKey: b.idempotencyKey, tactId: num(b.tactId),
     });
     changed(id);
     return res;
@@ -645,9 +658,9 @@ export function buildApp(
     if (!to) throw new AppError('Получатель не найден', 404);
     const res = await transfer(db, {
       gameId: id, kind: to.kind === 'host' ? 'to_host' : 'player', fromAccountId: Number(b.fromAccountId), toAccountId: Number(b.toAccountId),
-      amount: b.amount, comment: b.comment, initiatorStaffId: staff.id,
+      amount: b.amount, comment: b.comment, initiatorStaffId: staff.id, tactId: num(b.tactId),
       idempotencyKey: b.idempotencyKey ? `s${staff.id}:${String(b.idempotencyKey).slice(0, 100)}` : null,
-    });
+    }, undefined, intoTact(num(b.tactId)));
     changed(id);
     return res;
   });
@@ -790,7 +803,9 @@ export function buildApp(
     const id = Number((req.params as any).id);
     const { staff } = await needGame(req, id, 'run');
     const b = req.body as any;
-    const row = await assets.addLedger(db, id, staff.id, { accountId: Number(b.accountId), code: String(b.code ?? ''), delta: b.delta, comment: b.comment });
+    const row = await assets.addLedger(db, id, staff.id, {
+      accountId: Number(b.accountId), code: String(b.code ?? ''), delta: b.delta, comment: b.comment, tactId: num(b.tactId),
+    });
     changed(id);
     return row;
   });

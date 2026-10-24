@@ -74,7 +74,7 @@ export function TactPage({ ctx }: { ctx: Ctx }) {
             {left !== null && (
               <div className="tact-now-clock-box">
                 <div className={`tact-now-clock${left === 0 ? ' over' : left < 60_000 ? ' soon' : ''}`}>{left === 0 ? 'Время вышло' : clock(left)}</div>
-                {can && <button className="link-btn" onClick={addMinute}>+1 мин</button>}
+                {can && <button className="round-plus" onClick={addMinute} aria-label="Добавить минуту" title="Добавить минуту">+</button>}
               </div>
             )}
           </div>
@@ -83,12 +83,14 @@ export function TactPage({ ctx }: { ctx: Ctx }) {
             <>
               <div className="timer-pick">
                 <label className="field-label" htmlFor="tact-minutes">Таймер</label>
-                <input id="tact-minutes" className="cell-input minutes-input" inputMode="numeric" value={minutes || ''} placeholder="—"
-                  onChange={(e) => setMinutes(Math.min(MAX, Number(e.target.value.replace(/\D/g, '') || 0)))} />
-                <span className="small muted">мин</span>
-                <input type="range" className="slider" min={0} max={MAX} step={1} value={minutes} aria-label="Минут на такт, до 30"
-                  style={{ ['--fill' as any]: `${(minutes / MAX) * 100}%` }}
-                  onChange={(e) => setMinutes(Number(e.target.value))} />
+                <div className="slider-box" style={{ ['--fill' as any]: `${(minutes / MAX) * 100}%` }}>
+                  <span className="slider-value" aria-hidden="true">{minutes ? `${minutes} мин` : 'без таймера'}</span>
+                  <input type="range" className="slider" min={0} max={MAX} step={1} value={minutes} aria-label="Минут на такт, до 30"
+                    onChange={(e) => setMinutes(Number(e.target.value))} />
+                </div>
+                <input id="tact-minutes" className="cell-input minutes-input" inputMode="numeric" value={minutes || ''} placeholder="0"
+                  aria-label="Минут, вписать числом" onChange={(e) => setMinutes(Math.min(MAX, Number(e.target.value.replace(/\D/g, '') || 0)))} />
+                <button type="button" className="round-plus small" onClick={() => setMinutes((m) => Math.min(MAX, m + 1))} aria-label="Ещё минута">+</button>
               </div>
               <div className="row">
                 {!open.begun_at

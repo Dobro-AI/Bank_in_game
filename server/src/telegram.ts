@@ -121,13 +121,18 @@ export function createBot(db: Db, token: string) {
   };
 
   async function startJoin(ctx: any) {
-    const list = await db.query("select id, title from game where kind = 'branch' and status = 'active' and visible order by title");
+    // One open game per team of game masters; the player says whose group they are in.
+    const list = await db.query(
+      `select g.id, g.title, g.parent_id, coalesce(nullif(g.team, ''), string_agg(s.name, ' и ' order by s.name), g.title) as team
+       from game g left join game_staff gs on gs.game_id = g.id left join staff s on s.id = gs.staff_id
+       where g.kind = 'branch' and g.status = 'active' and g.visible group by g.id order by g.parent_id, g.id`,
+    );
     if (!list.length) return ctx.reply('Сейчас нет открытых игр. Дождитесь, пока игротехник откроет игру.');
-    // Usually one game is open at a time: go straight to its roles.
     if (list.length === 1) return showRoles(ctx, list[0].id, false);
+    const severalGames = new Set(list.map((g: any) => g.parent_id)).size > 1;
     const kb = new InlineKeyboard();
-    for (const g of list) kb.text(g.title, `g:${g.id}`).row();
-    return ctx.reply('Добро пожаловать в игровой банк! Выберите игру:', { reply_markup: kb });
+    for (const g of list) kb.text(severalGames ? `${g.team} · ${g.title}` : g.team, `g:${g.id}`).row();
+    return ctx.reply('Добро пожаловать в игровой банк! У какого игротехника вы играете?', { reply_markup: kb });
   }
 
   async function showBalance(ctx: any, p: any) {

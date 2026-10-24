@@ -94,7 +94,7 @@ function Games({ staff, manage }: { staff: Staff; manage: boolean }) {
   const branchRow = (b: any) => (
     <div key={b.id} className="list-item game-row">
       <Link to={`/admin/g/${b.id}`} className="grow game-link">
-        <div className="list-title">{b.title}</div>
+        <div className="list-title">{b.title}{b.team ? <span className="muted"> · {b.team}</span> : null}</div>
         <div className="list-sub">Игротехники: {b.hosts || 'не назначены'}</div>
       </Link>
       {b.status !== 'active' ? <span className="chip">{STATUS[b.status]}</span> : manage ? (

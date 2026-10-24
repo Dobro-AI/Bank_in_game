@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, useLive, useLoad } from '../api';
+import { ACCOUNT_KIND, KIND_LABEL, api, useLive, useLoad } from '../api';
 import { BoxIcon, BranchIcon, ChartIcon, FlagIcon, GearIcon, HistoryIcon, KeyIcon, SparkIcon, TableIcon, TransferIcon } from '../icons';
 import { ResultsBoard, type Results } from '../Results';
 import { TactTimer } from '../TactTimer';
@@ -95,6 +95,9 @@ export type Ctx = { id: number; d: GameData; accounts: any[]; tacts: any[]; tick
 
 const STATUS: Record<string, string> = { draft: 'не запущена', active: 'идёт', finished: 'завершена' };
 
+/** Transfers are listed by tact, so the time of day is enough. */
+const timeOnly = (s: string) => new Date(s).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
 function AdminResults({ ctx }: { ctx: Ctx }) {
   const r = useLoad(() => api<Results>(`/api/admin/games/${ctx.id}/results`), [ctx.id, ctx.tick]);
   return r.data ? <ResultsBoard data={r.data} /> : <ErrorText error={r.error} />;
@@ -175,15 +178,14 @@ function Transfers({ ctx }: { ctx: Ctx }) {
       <ErrorText error={list.error} />
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Дата и время</th><th>Такт</th><th>Тип</th><th>Инициатор</th><th>Отправитель</th><th>Получатель</th><th className="num">Сумма</th><th>Комментарий</th>{editable && <th></th>}</tr></thead>
+          <thead><tr><th>Такт</th><th>Время</th><th className="num">Сумма</th><th>От кого</th><th>Кому</th><th>Действие</th><th>Комментарий</th><th>Кто сделал</th>{editable && <th></th>}</tr></thead>
           <tbody>
             {list.data?.map((t) => editable
               ? <TransferRow key={`${t.id}:${t.amount}:${t.from_account_id}:${t.to_account_id}:${t.comment}`} ctx={ctx} t={t} onSaved={list.reload} />
               : (
                 <tr key={t.id}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{dateTime(t.created_at)}</td><td>{t.tact}</td><td>{KIND_LABEL[t.kind]}</td>
-                  <td>{t.initiator}</td><td>{t.from_title}</td><td>{t.to_title}</td>
-                  <td className="num"><Money value={t.amount} /></td><td>{t.comment}</td>
+                  <td>{t.tact}</td><td className="nowrap">{timeOnly(t.created_at)}</td><td className="num"><Money value={t.amount} /></td>
+                  <td>{t.from_title}</td><td>{t.to_title}</td><td>{KIND_LABEL[t.kind]}</td><td>{t.comment}</td><td className="small muted">{t.initiator}</td>
                 </tr>
               ))}
           </tbody>
@@ -215,15 +217,16 @@ function TransferRow({ ctx, t, onSaved }: { ctx: Ctx; t: any; onSaved: () => voi
   }));
   return (
     <tr>
-      <td style={{ whiteSpace: 'nowrap' }}>{dateTime(t.created_at)}</td><td>{t.tact}</td><td>{KIND_LABEL[t.kind]}</td>
-      <td>{t.initiator}</td>
-      <td className="pick">{fixed ? t.from_title : <Select value={from} onChange={setFrom} options={options} ariaLabel="Отправитель" />}</td>
-      <td className="pick">{fixed ? t.to_title : <Select value={to} onChange={setTo} options={options} ariaLabel="Получатель" />}</td>
+      <td>{t.tact}</td><td className="nowrap">{timeOnly(t.created_at)}</td>
       <td className="num">
         <input className="cell-input num-input" inputMode="numeric" value={amount} aria-label="Сумма"
           onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))} />
       </td>
+      <td className="pick">{fixed ? t.from_title : <Select value={from} onChange={setFrom} options={options} ariaLabel="Отправитель" />}</td>
+      <td className="pick">{fixed ? t.to_title : <Select value={to} onChange={setTo} options={options} ariaLabel="Получатель" />}</td>
+      <td>{KIND_LABEL[t.kind]}</td>
       <td><input className="cell-input" value={comment} aria-label="Комментарий" onChange={(e) => setComment(e.target.value)} /></td>
+      <td className="small muted">{t.initiator}</td>
       <td>
         <div className="row" style={{ flexWrap: 'nowrap' }}>
           <button className="btn small primary" disabled={!dirty || !(Number(amount) > 0)} onClick={save}>Сохранить</button>

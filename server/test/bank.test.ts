@@ -284,10 +284,11 @@ describe('Google-таблица: «Счета» и «Переводы»', () => 
     await new Promise((r) => setTimeout(r, 5)); // the log is ordered by time
     await playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 5 });
     const log = values((await buildSheets(db, branchId)).find((x) => x.title === 'Переводы')!);
-    expect(log[0].slice(0, 2)).toEqual(['Статус', 'Причина']);
-    const mine = log.filter((r) => r[5] === from.title);
-    expect(mine.map((r) => [r[0], r[1], r[8]])).toEqual([['Отклонено', 'Недостаточно средств на счёте', 500], ['Принято', '', 5]]);
-    expect(mine[0][4]).toContain('(Мэр)');
+    expect(log[0]).toEqual(['Такт', 'Время', 'Сумма', 'От кого', 'Кому', 'Действие', 'Комментарий', 'Кто сделал', 'Статус', 'Причина']);
+    const mine = log.filter((r) => r[3] === from.title);
+    expect(mine.map((r) => [r[8], r[9], r[2]])).toEqual([['Отклонено', 'Недостаточно средств на счёте', 500], ['Принято', '', 5]]);
+    expect(mine[0][7]).toContain('(Мэр)');
+    expect(String(mine[0][1])).toMatch(/^\d\d:\d\d:\d\d$/); // time only
   });
 });
 

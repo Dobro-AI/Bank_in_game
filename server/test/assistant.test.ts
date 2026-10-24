@@ -226,6 +226,6 @@ describe('помощник меняет «Счета», «Переводы» и 
     expect(city.cells.E.formula).toMatch(/^=B\d+\+C\d+-D\d+\+SUM/);
     expect(out.google_values).toBe(false);
     const log: any = await assistant.runTool(db, { gameId, threadId: 0 }, 'read_sheet', { sheet: 'Переводы', from_row: 1, to_row: 1 });
-    expect(log.rows[0].cells.A).toBe('Статус');
+    expect(log.rows[0].cells.A).toBe('Такт');
   });
 });

@@ -101,7 +101,9 @@ describe('Google-таблица', () => {
     expect(capacity[c - 1].slice(0, 8)).toEqual(['IVI', 'Сервер', 2, 10, `=C${c}*D${c}`, 30, `=C${c}*F${c}`, 'ч']);
     // "Счета": start capital in B, income in C, expenses taken from "Мощности", the balance in E.
     const n = accounts.findIndex((r) => r[0] === 'IVI') + 1;
-    const ivi = capacity.map((r, i) => [r[0], i + 1]).filter(([t]) => t === 'IVI').map(([, i]) => i);
+    // IVI's rows of the first tact (later blocks repeat the companies).
+    const ivi: number[] = [];
+    for (let i = capacity.findIndex((r) => r[0] === 'IVI'); capacity[i]?.[0] === 'IVI'; i++) ivi.push(i + 1);
     expect(accounts[n - 1].slice(0, 5)).toEqual(['IVI', expect.any(Number), 0, `=SUM('Мощности'!E${ivi[0]}:E${ivi.at(-1)})`, expect.stringMatching(new RegExp(`^=B${n}\\+C${n}-D${n}\\+SUM\\(F${n}:`))]);
   });
 

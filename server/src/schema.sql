@@ -330,3 +330,16 @@ create table if not exists staff_sheet (
   error text not null default '',
   primary key (game_id, staff_id)
 );
+
+-- Teams of game masters: every team runs its own branch of a game (own players, codes, money);
+-- the label is what a player picks at sign-in ("Павел Зайцев и Степан Лушпей").
+alter table game add column if not exists team text not null default '';
+
+-- What the bank last wrote into each editable cell of a sheet ("row:col" → [meaning, value]): a value
+-- that differs on the next read is a game master's edit made right in Google, applied to the bank.
+create table if not exists sheet_state (
+  sheet_id text not null,
+  title text not null,
+  cells jsonb not null default '{}',
+  primary key (sheet_id, title)
+);

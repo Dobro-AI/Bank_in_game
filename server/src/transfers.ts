@@ -20,6 +20,8 @@ export interface TransferInput {
   idempotencyKey?: string | null;
   /** Fixed-price costs and host debits may push a player account below zero. */
   allowNegative?: boolean;
+  /** A game master's correction of a finished tact goes into that tact; everything else into the open one. */
+  tactId?: number;
 }
 
 export function parseAmount(v: unknown): number {
@@ -40,11 +42,10 @@ export async function transferTx(tx: Tx, t: TransferInput) {
   if (t.fromAccountId === t.toAccountId) throw new AppError('Нельзя перевести на тот же счёт');
   const comment = (t.comment ?? '').trim().slice(0, 500);
 
-  const [tact] = await tx.query(
-    'select id from tact where game_id = $1 and closed_at is null for share',
-    [t.gameId],
-  );
-  if (!tact) throw new AppError('Игра ещё не запущена');
+  const [tact] = t.tactId
+    ? await tx.query('select id from tact where id = $1 and game_id = $2 for share', [t.tactId, t.gameId])
+    : await tx.query('select id from tact where game_id = $1 and closed_at is null for share', [t.gameId]);
+  if (!tact) throw new AppError(t.tactId ? 'Такт не найден' : 'Игра ещё не запущена');
 
   const accounts = await tx.query(
     'select id, kind, balance from account where id = any($1::int[]) and game_id = $2 order by id for update',
@@ -214,11 +215,19 @@ export async function payFixedPrice(
   );
 }
 
+/** A game master's operation written into a finished tact recounts that tact's snapshot and the later ones. */
+export const intoTact = (tactId?: number) => (tactId
+  ? async (tx: Tx, row: any) => {
+    const [t] = await tx.query('select closed_at from tact where id = $1', [row.tact_id]);
+    if (t?.closed_at) await rebuildSnapshots(tx, row.game_id, row.tact_id);
+  }
+  : undefined);
+
 export async function hostAdjust(
   db: Db,
   gameId: number,
   staffId: number,
-  body: { accountId: number; direction: 'credit' | 'debit'; amount: unknown; comment?: string; idempotencyKey?: string },
+  body: { accountId: number; direction: 'credit' | 'debit'; amount: unknown; comment?: string; idempotencyKey?: string; tactId?: number },
 ) {
   const amount = parseAmount(body.amount);
   const hostId = await hostAccountId(db, gameId);
@@ -235,7 +244,8 @@ export async function hostAdjust(
     initiatorStaffId: staffId,
     idempotencyKey: scopedKey(`s${staffId}`, body.idempotencyKey),
     allowNegative: true,
-  });
+    tactId: body.tactId,
+  }, undefined, intoTact(body.tactId));
 }
 
 /** Revenue/OPEX postings carry `post:<kind>:<tact>:<account>:…` keys; their signed share of tact_posting. */

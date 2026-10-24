@@ -305,8 +305,8 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .capacities tbody.alt td { background: #f3fafc; }
 .capacities tbody td.cost { background: #fbeceb; }
 .capacities tbody td.cost-sum { background: #f4cccc; font-weight: 600; }
-.capacities tbody td.power { background: #fef5ec; }
-.capacities tbody td.power-sum { background: #fce5cd; font-weight: 600; }
+.capacities tbody td.power { background: #eef7ea; }
+.capacities tbody td.power-sum { background: #d9ead3; color: #274e13; font-weight: 700; }
 
 /* Tact countdown: a small quiet pill pinned to the top-right corner of every screen. */
 .tact-timer {
@@ -385,3 +385,18 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .results-num.total { font-size: 20px; font-weight: 700; }
 .results-num.total.negative { color: #b91c1c; }
 .results-empty { text-align: center !important; color: var(--muted, #6b7280); }
+
+/* Timer setting: the slider shows its minutes above the thumb; the number can be typed; "+" adds a minute. */
+.slider-box { position: relative; flex: 1; min-width: 160px; padding-top: 18px; }
+.slider-value {
+  position: absolute; top: 0; left: clamp(0px, calc(var(--fill, 0%) - 28px), calc(100% - 72px));
+  font-size: 12px; font-weight: 600; color: var(--cta-hover); white-space: nowrap;
+}
+.round-plus {
+  flex: none; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: #fff;
+  font-size: 22px; line-height: 1; font-weight: 600; color: var(--text); cursor: pointer;
+}
+.round-plus.small { width: 36px; height: 36px; font-size: 20px; }
+.round-plus:hover { background: var(--bg); }
+.round-plus:active { transform: scale(0.95); }
+.tact-now-clock-box { flex-direction: row; align-items: center; gap: 12px; }
