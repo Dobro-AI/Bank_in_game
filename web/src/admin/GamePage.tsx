@@ -71,8 +71,7 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
         {!isRoot && d.game.status === 'active' && <OpenTact tacts={ctx.tacts} />}
       </header>
       {!isRoot && d.game.status === 'draft' && <LaunchBanner ctx={ctx} />}
-      <TactTimer tact={ctx.tacts.find((t) => !t.closed_at)}
-        onAdd={d.can.run ? () => api(`/api/admin/games/${id}/tact/add-minute`, { body: {} }).then(ctx.reload, () => {}) : undefined} />
+      <TactTimer tact={ctx.tacts.find((t) => !t.closed_at)} />
       {current === 'money' && <SheetView ctx={ctx} section="money" tabs={['Счета']} initial="bank"><MoneyPage ctx={ctx} /></SheetView>}
       {current === 'history' && <SheetView ctx={ctx} section="history" tabs={['Переводы']} initial="bank"><Transfers ctx={ctx} /></SheetView>}
       {current === 'capacity' && (

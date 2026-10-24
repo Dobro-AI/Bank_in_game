@@ -7,7 +7,6 @@ import type { Ctx } from './GamePage';
 /** The game is planned for three tacts; later ones are extra. */
 const PLANNED = 3;
 /** A tact lasts up to 30 minutes. */
-const PRESETS = [5, 10, 15, 20, 25, 30];
 const MAX = 30;
 
 interface Totals { money: number; income: number; expenses: number }
@@ -73,9 +72,9 @@ export function TactPage({ ctx }: { ctx: Ctx }) {
               </div>
             </div>
             {left !== null && (
-              <div className="row" style={{ gap: 12, flexWrap: 'nowrap' }}>
+              <div className="tact-now-clock-box">
                 <div className={`tact-now-clock${left === 0 ? ' over' : left < 60_000 ? ' soon' : ''}`}>{left === 0 ? 'Время вышло' : clock(left)}</div>
-                {can && <button className="btn add-minute" onClick={addMinute} aria-label="Добавить минуту">+1 мин</button>}
+                {can && <button className="link-btn" onClick={addMinute}>+1 мин</button>}
               </div>
             )}
           </div>
@@ -83,38 +82,24 @@ export function TactPage({ ctx }: { ctx: Ctx }) {
           {can && (
             <>
               <div className="timer-pick">
-                <div className="row between">
-                  <label className="field-label" htmlFor="tact-minutes">Таймер</label>
-                  <div className="row" style={{ gap: 8 }}>
-                    <input id="tact-minutes" className="cell-input minutes-input" inputMode="numeric" value={minutes || ''} placeholder="0"
-                      aria-label="Минут на такт" onChange={(e) => setMinutes(Math.min(MAX, Number(e.target.value.replace(/\D/g, '') || 0)))} />
-                    <span className="small muted">мин</span>
-                  </div>
-                </div>
-                <input type="range" className="slider" min={0} max={MAX} step={1} value={minutes} aria-label="Минут на такт"
+                <label className="field-label" htmlFor="tact-minutes">Таймер</label>
+                <input id="tact-minutes" className="cell-input minutes-input" inputMode="numeric" value={minutes || ''} placeholder="—"
+                  onChange={(e) => setMinutes(Math.min(MAX, Number(e.target.value.replace(/\D/g, '') || 0)))} />
+                <span className="small muted">мин</span>
+                <input type="range" className="slider" min={0} max={MAX} step={1} value={minutes} aria-label="Минут на такт, до 30"
                   style={{ ['--fill' as any]: `${(minutes / MAX) * 100}%` }}
                   onChange={(e) => setMinutes(Number(e.target.value))} />
-                <div className="row between tiny muted"><span>без таймера</span><span>{MAX} мин</span></div>
-                <div className="chips" role="group" aria-label="Быстрый выбор">
-                  {PRESETS.map((m) => (
-                    <button key={m} type="button" className="chip-toggle" aria-pressed={minutes === m} onClick={() => setMinutes(m)}>{m} мин</button>
-                  ))}
-                </div>
               </div>
               <div className="row">
-                {!open.begun_at ? (
-                  <button className="btn primary" disabled={busy} onClick={start}>
-                    Начать {open.number} такт{minutes ? ` на ${minutes} мин` : ''}
-                  </button>
-                ) : (
-                  <>
-                    <button className="btn" disabled={busy || !minutes} onClick={() => setTimer(minutes)}>
-                      {open.ends_at ? `Перезапустить таймер: ${minutes} мин` : `Поставить таймер: ${minutes} мин`}
-                    </button>
-                    {open.ends_at && <button className="btn" disabled={busy} onClick={() => setTimer(0)}>Убрать таймер</button>}
-                  </>
+                {!open.begun_at
+                  ? <button className="btn primary" disabled={busy} onClick={start}>Начать {open.number} такт</button>
+                  : <button className="btn primary" disabled={busy} onClick={() => setFinish(true)}>Закончить {open.number} такт</button>}
+                {open.begun_at && (
+                  <span className="row" style={{ gap: 4 }}>
+                    <button className="link-btn" disabled={busy || !minutes} onClick={() => setTimer(minutes)}>{open.ends_at ? 'Таймер заново' : 'Поставить таймер'}</button>
+                    {open.ends_at && <button className="link-btn" disabled={busy} onClick={() => setTimer(0)}>Убрать таймер</button>}
+                  </span>
                 )}
-                <button className={open.begun_at ? 'btn primary' : 'btn'} disabled={busy} onClick={() => setFinish(true)}>Закончить {open.number} такт</button>
               </div>
             </>
           )}
