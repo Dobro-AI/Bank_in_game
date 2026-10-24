@@ -21,8 +21,8 @@ export interface GameData {
 type Section = 'money' | 'history' | 'capacity' | 'roles' | 'assistant' | 'rules' | 'settings' | 'branches';
 
 const SECTIONS: Record<Section, { label: string; icon: ReactNode }> = {
-  money: { label: 'Деньги', icon: <TableIcon /> },
-  history: { label: 'История переводов', icon: <TransferIcon /> },
+  money: { label: 'Счета', icon: <TableIcon /> },
+  history: { label: 'Переводы', icon: <TransferIcon /> },
   capacity: { label: 'Мощности', icon: <BoxIcon /> },
   roles: { label: 'Роли', icon: <KeyIcon /> },
   assistant: { label: 'Помощник', icon: <SparkIcon /> },
@@ -68,10 +68,10 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
         {!isRoot && d.game.status === 'active' && <OpenTact tacts={ctx.tacts} />}
       </header>
       {!isRoot && d.game.status === 'draft' && <LaunchBanner ctx={ctx} />}
-      {current === 'money' && <SheetView ctx={ctx} section="money" tabs={['Деньги']} initial="bank"><MoneyPage ctx={ctx} /></SheetView>}
+      {current === 'money' && <SheetView ctx={ctx} section="money" tabs={['Счета']} initial="bank"><MoneyPage ctx={ctx} /></SheetView>}
       {current === 'history' && <SheetView ctx={ctx} section="history" tabs={['Переводы']} initial="bank"><Transfers ctx={ctx} /></SheetView>}
       {current === 'capacity' && (
-        <SheetView ctx={ctx} section="capacity" tabs={['Мощности', 'Выручка и OPEX', 'Журнал активов']} initial="bank"><Capacities ctx={ctx} /></SheetView>
+        <SheetView ctx={ctx} section="capacity" tabs={['Мощности']} initial="bank"><Capacities ctx={ctx} /></SheetView>
       )}
       {current === 'roles' && <Codes ctx={ctx} />}
       {current === 'assistant' && <Assistant ctx={ctx} />}

@@ -288,3 +288,8 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .calc-asset .formula { grid-column: 1 / -1; }
 .formula { font-variant-numeric: tabular-nums; }
 .calc .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
+.capacities tbody.alt td { background: #f3fafc; }
+.capacities tbody td.cost { background: #fbeceb; }
+.capacities tbody td.cost-sum { background: #f4cccc; font-weight: 600; }
+.capacities tbody td.power { background: #fef5ec; }
+.capacities tbody td.power-sum { background: #fce5cd; font-weight: 600; }

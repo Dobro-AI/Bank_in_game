@@ -38,8 +38,9 @@ function useTact(ctx: Ctx) {
 }
 
 /**
- * "Деньги": per company and tact — money at the start, what came in and went out, the balance (typed
- * in to correct it), and what it becomes when the tact ends. Money moves from here; the tact ends here.
+ * "Счета": per company and tact — money at the start, income typed in by the game master (credited at
+ * once), expenses from "Мощности" (subtracted when the tact ends), net transfers and the balance =
+ * start + income − expenses + transfers, the same formula as in the Google sheet.
  */
 export function Money({ ctx }: { ctx: Ctx }) {
   const { q, cap, picker } = useTact(ctx);
@@ -49,19 +50,19 @@ export function Money({ ctx }: { ctx: Ctx }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
-  if (ctx.d.game.status === 'draft') return <Empty>Деньги появятся после запуска игры</Empty>;
+  if (ctx.d.game.status === 'draft') return <Empty>Счета появятся после запуска игры</Empty>;
   if (!cap.data || !sum.data) return <ErrorText error={cap.error || sum.error} />;
   const tact = cap.data.tact;
   const open = !tact.closed_at;
   const editable = open && ctx.d.can.run;
   const bySum = new Map(sum.data.rows.map((r) => [r.accountId, r]));
   const rows = companies(cap.data.rows);
-  const pending = rows.reduce((t, r) => ({ earned: t.earned + r.revenue - (r.postedRevenue ?? 0), opex: t.opex + r.opex - (r.postedOpex ?? 0) }), { earned: 0, opex: 0 });
-  const totals = rows.reduce((t, r) => {
-    const s = bySum.get(r.accountId);
-    return { start: t.start + (s?.balanceStart ?? 0), in: t.in + (s?.received ?? 0), out: t.out + (s?.sent ?? 0),
-      end: t.end + (s?.balanceEnd ?? 0), after: t.after + afterTact(r) };
-  }, { start: 0, in: 0, out: 0, end: 0, after: 0 });
+  // Income and expense postings are shown as such, not among the transfers.
+  const moved = (r: CapRow, s?: SumRow) => (s ? s.received - s.sent : 0) - (r.postedRevenue ?? 0) + (r.postedOpex ?? 0);
+  const start = (r: CapRow) => bySum.get(r.accountId)?.balanceStart ?? 0;
+  const end = (r: CapRow) => (open ? afterTact(r) : bySum.get(r.accountId)?.balanceEnd ?? 0);
+  const pendingOpex = rows.reduce((t, r) => t + r.opex - (r.postedOpex ?? 0), 0);
+  const total = (f: (r: CapRow) => number) => rows.reduce((t, r) => t + f(r), 0);
   const reload = () => { cap.reload(); sum.reload(); };
 
   async function doFinish() {
@@ -82,7 +83,7 @@ export function Money({ ctx }: { ctx: Ctx }) {
           {editable && <button className="btn primary" onClick={() => setFinish(true)}>Завершить такт {tact.number}</button>}
         </div>
         <span className="small muted">
-          {open ? 'При завершении такта заработок начислится, а расходы на мощности спишутся с каждой компании сами.' : 'Такт завершён: суммы зафиксированы.'}
+          {open ? 'Доходы сразу попадают на счёт. Расходы на мощности спишутся при завершении такта.' : 'Такт завершён: суммы зафиксированы.'}
         </span>
       </div>
       <ErrorText error={error} />
@@ -91,34 +92,33 @@ export function Money({ ctx }: { ctx: Ctx }) {
         <table className="calc">
           <thead>
             <tr>
-              <th>Компания</th><th className="num">На начало</th><th className="num">Пришло</th><th className="num">Ушло</th>
-              <th className="num">Остаток</th>{open && <th className="num">После такта</th>}<th></th>
+              <th>Компания</th><th className="num">На начало</th><th className="num">Доходы</th><th className="num">Расходы</th>
+              <th className="num">Переводы</th><th className="num">Остаток</th>{open && <th className="num">Сейчас на счёте</th>}<th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => {
               const s = bySum.get(r.accountId);
-              const end = s?.balanceEnd ?? 0;
+              const m = moved(r, s);
               return (
                 <tr key={r.accountId}>
                   <td><strong>{r.title}</strong><div className="tiny muted">{r.owner}</div></td>
-                  <td className="num"><Amount value={s?.balanceStart ?? 0} /></td>
-                  <td className="num">{s?.received ? <span className="in"><Amount value={s.received} signed /></span> : '—'}</td>
-                  <td className="num">{s?.sent ? <Amount value={-s.sent} signed /> : '—'}</td>
+                  <td className="num"><Amount value={start(r)} /></td>
                   <td className="num">
-                    {editable
-                      ? <BalanceInput key={`${r.accountId}:${end}`} ctx={ctx} accountId={r.accountId} title={r.title} value={end} onSaved={reload} />
-                      : <strong><Amount value={end} /></strong>}
+                    {editable ? <Earned ctx={ctx} tactId={tact.id} row={r} onSaved={() => { reload(); ctx.reload(); }} /> : <Amount value={r.revenue} />}
+                    {r.revenue !== r.earned && <div className="tiny muted formula">+ с мощностей {money(r.revenue - r.earned)}</div>}
                   </td>
+                  <td className="num">
+                    {r.opex ? <Amount value={-r.opex} signed /> : '—'}
+                    {r.opexText && <div className="tiny muted formula">{r.opexText}</div>}
+                  </td>
+                  <td className="num">{m ? <span className={m > 0 ? 'in' : undefined}><Amount value={m} signed /></span> : '—'}</td>
+                  <td className="num"><strong><Amount value={end(r)} /></strong></td>
                   {open && (
                     <td className="num">
-                      <Amount value={afterTact(r)} />
-                      {afterTact(r) !== r.balance && (
-                        <div className="tiny muted">
-                          {r.revenue - (r.postedRevenue ?? 0) ? `+${money(r.revenue - (r.postedRevenue ?? 0))} заработок` : ''}
-                          {r.opex - (r.postedOpex ?? 0) ? ` −${money(r.opex - (r.postedOpex ?? 0))} расходы` : ''}
-                        </div>
-                      )}
+                      {editable
+                        ? <BalanceInput key={`${r.accountId}:${r.balance}`} ctx={ctx} accountId={r.accountId} title={r.title} value={r.balance} onSaved={reload} />
+                        : <Amount value={r.balance} />}
                     </td>
                   )}
                   <td>{ctx.d.can.run && open && <button className="btn small" onClick={() => setMoneyFor(r)}>Деньги</button>}</td>
@@ -128,20 +128,20 @@ export function Money({ ctx }: { ctx: Ctx }) {
           </tbody>
           <tfoot>
             <tr>
-              <td>Сумма у всех</td><td className="num"><Amount value={totals.start} /></td><td className="num"><Amount value={totals.in} /></td>
-              <td className="num"><Amount value={-totals.out} signed /></td><td className="num"><Amount value={totals.end} /></td>
-              {open && <td className="num"><Amount value={totals.after} /></td>}<td></td>
+              <td>Сумма у всех</td><td className="num"><Amount value={total(start)} /></td><td className="num"><Amount value={total((r) => r.revenue)} /></td>
+              <td className="num"><Amount value={-total((r) => r.opex)} signed /></td><td className="num"><Amount value={total((r) => moved(r, bySum.get(r.accountId)))} signed /></td>
+              <td className="num"><Amount value={total(end)} /></td>{open && <td className="num"><Amount value={total((r) => r.balance)} /></td>}<td></td>
             </tr>
           </tfoot>
         </table>
       </div>
+      {open && <p className="small muted">Остаток — сколько будет на счёте после завершения такта: на начало + доходы − расходы + переводы.</p>}
 
       {moneyFor && <MoneyDialog ctx={ctx} row={moneyFor} onClose={() => setMoneyFor(undefined)} onDone={() => { setMoneyFor(undefined); ctx.reload(); reload(); }} />}
       {finish && (
         <Confirm title={`Завершить такт ${tact.number}?`} busy={busy} error={error} confirmText="Завершить" onCancel={() => setFinish(false)} onConfirm={doFinish}>
-          <div className="summary-line"><span className="muted">Начислится заработок</span><Amount value={pending.earned} /></div>
-          <div className="summary-line"><span className="muted">Спишутся расходы</span><Amount value={-pending.opex} signed /></div>
-          <p className="small muted">Заработок и расходы — в разделе «Мощности». Балансы зафиксируются, начнётся такт {tact.number + 1}.</p>
+          <div className="summary-line"><span className="muted">Спишутся расходы на мощности</span><Amount value={-pendingOpex} signed /></div>
+          <p className="small muted">Балансы зафиксируются, начнётся такт {tact.number + 1}.</p>
         </Confirm>
       )}
     </>
@@ -149,63 +149,105 @@ export function Money({ ctx }: { ctx: Ctx }) {
 }
 
 /**
- * "Мощности": what each company has this tact (editable), hours or trips served, money earned typed in by
- * the host, expenses by formula and the tact's result. Any finished tact can be looked at.
+ * "Мощности": a row per company and asset, like the organisers' sheet — quantity × expense of one
+ * unit = expenses, quantity × capacity of one unit = capacity. Quantities and served hours are edited
+ * here; the company's expenses go to "Счета".
  */
 export function Capacities({ ctx }: { ctx: Ctx }) {
   const { cap, picker } = useTact(ctx);
   const [journal, setJournal] = useState<number>();
+  const [error, setError] = useState<string>();
 
   if (ctx.d.game.status === 'draft') return <Empty>Мощности появятся после запуска игры</Empty>;
   if (!cap.data) return <ErrorText error={cap.error} />;
   const tact = cap.data.tact;
   const editable = !tact.closed_at && ctx.d.can.run;
+  const types = cap.data.types;
+  const typeBy = new Map(types.map((t) => [t.code, t]));
   const rows = companies(cap.data.rows);
-  const totals = rows.reduce((t, r) => ({ earned: t.earned + r.revenue, opex: t.opex + r.opex }), { earned: 0, opex: 0 });
+  const served = types.some((t) => t.capacity_unit);
+
+  async function change(accountId: number, code: string, from: number, to: number) {
+    if (to === from) return;
+    try {
+      await api(`/api/admin/games/${ctx.id}/ledger`, { body: { accountId, code, delta: to - from, comment: 'Изменено в мощностях' } });
+      setError(undefined);
+      cap.reload();
+    } catch (e: any) { setError(e.message); }
+  }
 
   return (
     <>
       <div className="row between" style={{ marginBottom: 12 }}>
         {picker}
         <span className="small muted">
-          {editable ? 'Заработок начислится, а расходы спишутся, когда такт завершат в разделе «Деньги».' : 'Такт завершён: суммы зафиксированы.'}
+          {editable ? 'Расходы компании идут в «Счета» и спишутся при завершении такта.' : 'Такт завершён: суммы зафиксированы.'}
         </span>
       </div>
+      <ErrorText error={error} />
       <div className="table-wrap">
-        <table className="calc">
+        <table className="calc capacities">
           <thead>
             <tr>
-              <th>Компания</th><th>Мощности</th><th>Обслужено</th><th className="num">Заработали</th>
-              <th className="num">Расходы</th><th className="num">Итог такта</th><th></th>
+              <th>Компания</th><th>Актив</th><th className="num">Количество</th><th className="num">Расход на 1 шт.</th><th className="num">Расходы</th>
+              <th className="num">Мощность 1 шт.</th><th className="num">Мощность</th>{served && <th>Обслужено</th>}<th className="num">Расходы компании</th>
             </tr>
           </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.accountId}>
-                <td><strong>{r.title}</strong><div className="tiny muted">{r.owner}</div></td>
-                <td><Assets ctx={ctx} row={r} types={cap.data!.types} editable={editable} onChanged={cap.reload} /></td>
-                <td>
-                  {r.assets.filter((a) => a.capacityUnit && a.end + a.output > 0).map((a) => (
-                    <OutputInput key={a.code} ctx={ctx} tactId={tact.id} accountId={r.accountId} cell={a} editable={editable} onSaved={cap.reload} />
-                  ))}
-                </td>
-                <td className="num">
-                  {editable ? <Earned ctx={ctx} tactId={tact.id} row={r} onSaved={cap.reload} /> : <Amount value={r.earned} />}
-                  {r.revenue !== r.earned && <div className="tiny muted formula">+ с мощностей {money(r.revenue - r.earned)}</div>}
-                </td>
-                <td className="num">
-                  {r.opex ? <Amount value={-r.opex} signed /> : '—'}
-                  {r.opexText && <div className="tiny muted formula">{r.opexText}</div>}
-                </td>
-                <td className="num"><strong><Amount value={r.result} signed /></strong></td>
-                <td><button className="btn small" onClick={() => setJournal(journal === r.accountId ? undefined : r.accountId)}>{journal === r.accountId ? 'Все' : 'Журнал'}</button></td>
-              </tr>
-            ))}
-          </tbody>
+          {rows.map((r, ri) => {
+            const list = r.assets.filter((a) => a.end || a.output);
+            const span = Math.max(1, list.length);
+            const missing = types.filter((t) => !list.some((a) => a.code === t.code));
+            const company = (
+              <td rowSpan={span}>
+                <strong>{r.title}</strong>
+                <div className="tiny muted">{r.owner}</div>
+                {editable && missing.length > 0 && (
+                  <div style={{ marginTop: 8, minWidth: 160 }}>
+                    <Select value="" placeholder="+ актив" ariaLabel={`Добавить актив, ${r.title}`} onChange={(code) => code && change(r.accountId, code, 0, 1)}
+                      options={missing.map((t) => ({ value: t.code, label: t.title }))} />
+                  </div>
+                )}
+                <button className="btn small" style={{ marginTop: 8 }} onClick={() => setJournal(journal === r.accountId ? undefined : r.accountId)}>
+                  {journal === r.accountId ? 'Все компании' : 'Журнал'}
+                </button>
+              </td>
+            );
+            const totalCell = (
+              <td rowSpan={span} className="num">
+                {r.opex ? <strong><Amount value={-r.opex} signed /></strong> : '—'}
+                {r.opexText && <div className="tiny muted formula">{r.opexText}</div>}
+              </td>
+            );
+            return (
+              <tbody key={r.accountId} className={ri % 2 ? 'alt' : undefined}>
+                {list.length === 0 && (
+                  <tr>{company}<td colSpan={served ? 7 : 6} className="muted small">Активов нет</td>{totalCell}</tr>
+                )}
+                {list.map((a, i) => {
+                  const t = typeBy.get(a.code);
+                  return (
+                    <tr key={a.code}>
+                      {i === 0 && company}
+                      <td>{a.title}</td>
+                      <td className="num">{editable ? <Qty value={a.end} label={`${r.title}, ${a.title}`} onSave={(n) => change(r.accountId, a.code, a.end, n)} /> : <strong>{a.end}</strong>}</td>
+                      <td className="num cost">{money(t?.opex_per_unit ?? 0)}</td>
+                      <td className="num cost-sum">{money(a.end * (t?.opex_per_unit ?? 0))}</td>
+                      <td className="num power">{t?.capacity_per_unit ? `${money(t.capacity_per_unit)} ${a.capacityUnit}` : '—'}</td>
+                      <td className="num power-sum">{a.capacityUnit ? `${money(a.capacity)} ${a.capacityUnit}` : '—'}</td>
+                      {served && (
+                        <td>{a.capacityUnit ? <OutputInput ctx={ctx} tactId={tact.id} accountId={r.accountId} cell={a} editable={editable} onSaved={cap.reload} /> : null}</td>
+                      )}
+                      {i === 0 && totalCell}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            );
+          })}
           <tfoot>
             <tr>
-              <td>Итого</td><td></td><td></td><td className="num"><Amount value={totals.earned} /></td>
-              <td className="num"><Amount value={-totals.opex} signed /></td><td className="num"><Amount value={totals.earned - totals.opex} signed /></td><td></td>
+              <td colSpan={served ? 8 : 7}>Итого расходов</td>
+              <td className="num"><Amount value={-rows.reduce((s, r) => s + r.opex, 0)} signed /></td>
             </tr>
           </tfoot>
         </table>
@@ -229,7 +271,7 @@ function BalanceInput({ ctx, accountId, title, value, onSaved }: { ctx: Ctx; acc
   }
   return (
     <>
-      <input className="cell-input num-input" inputMode="numeric" value={v} aria-label={`Остаток, ${title}`}
+      <input className="cell-input num-input" inputMode="numeric" value={v} aria-label={`Сейчас на счёте, ${title}`}
         onChange={(e) => setV(e.target.value.replace(/[^\d-]/g, ''))} onBlur={save}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
       {error && <div className="tiny error">{error}</div>}
@@ -237,7 +279,7 @@ function BalanceInput({ ctx, accountId, title, value, onSaved }: { ctx: Ctx; acc
   );
 }
 
-/** Money the company earned this tact, typed by the host; saved on leaving the field. */
+/** Income of the company this tact, typed by the host; saved on leaving the field and credited at once. */
 function Earned({ ctx, tactId, row, onSaved }: { ctx: Ctx; tactId: number; row: CapRow; onSaved: () => void }) {
   const [v, setV] = useState(row.earned ? String(row.earned) : '');
   const [error, setError] = useState<string>();
@@ -253,48 +295,10 @@ function Earned({ ctx, tactId, row, onSaved }: { ctx: Ctx; tactId: number; row: 
   return (
     <>
       <input className="cell-input" style={{ width: 96, textAlign: 'right' }} inputMode="numeric" placeholder="0" value={v}
-        aria-label={`Заработали, ${row.title}`} onChange={(e) => setV(e.target.value.replace(/\D/g, ''))} onBlur={save}
+        aria-label={`Доходы, ${row.title}`} onChange={(e) => setV(e.target.value.replace(/\D/g, ''))} onBlur={save}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
       {error && <div className="tiny error">{error}</div>}
     </>
-  );
-}
-
-/** Assets of a company: quantity is editable (the change goes to the asset journal). */
-function Assets({ ctx, row, types, editable, onChanged }: { ctx: Ctx; row: CapRow; types: any[]; editable: boolean; onChanged: () => void }) {
-  const [error, setError] = useState<string>();
-  const typeBy = new Map(types.map((t) => [t.code, t]));
-  const have = new Set(row.assets.map((a) => a.code));
-  async function change(code: string, from: number, to: number) {
-    if (to === from) return;
-    try {
-      await api(`/api/admin/games/${ctx.id}/ledger`, { body: { accountId: row.accountId, code, delta: to - from, comment: 'Изменено в мощностях' } });
-      setError(undefined);
-      onChanged();
-    } catch (e: any) { setError(e.message); }
-  }
-  return (
-    <div className="calc-assets">
-      {row.assets.map((a) => {
-        const t = typeBy.get(a.code);
-        return (
-          <div key={a.code} className="calc-asset">
-            <span className="grow">{a.title}</span>
-            {editable ? <Qty value={a.end} label={a.title} onSave={(n) => change(a.code, a.end, n)} /> : <strong>{a.end}</strong>}
-            <span className="tiny muted formula">
-              {a.capacityUnit ? `= ${money(a.capacity)} ${a.capacityUnit}` : ''}
-              {t?.opex_per_unit ? `${a.capacityUnit ? ', ' : '= '}расход ${a.end} × ${t.opex_per_unit}` : ''}
-            </span>
-          </div>
-        );
-      })}
-      {editable && types.some((t) => !have.has(t.code)) && (
-        <Select value="" placeholder="+ актив" ariaLabel={`Добавить актив, ${row.title}`}
-          onChange={(code) => code && change(code, 0, 1)}
-          options={types.filter((t) => !have.has(t.code)).map((t) => ({ value: t.code, label: t.title }))} />
-      )}
-      {error && <div className="tiny error">{error}</div>}
-    </div>
   );
 }
 

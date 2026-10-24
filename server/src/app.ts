@@ -602,7 +602,10 @@ export function buildApp(
     const id = Number((req.params as any).id);
     const { game } = await needGame(req, id, 'view');
     // Capacity, revenue/OPEX and the asset journal go along with transfers and the summary.
-    const extra = (await sheets.buildSheets(db, id)).filter((x) => ['Мощности', 'Выручка и OPEX', 'Журнал активов'].includes(x.title));
+    // "Счета" and "Мощности" go along with transfers and the summary, formulas included.
+    const extra = (await sheets.buildSheets(db, id)).filter((x) => ['Счета', 'Мощности'].includes(x.title)).map((x) => ({
+      title: x.title, rows: sheets.values(x).map((r) => r.map((v) => (typeof v === 'string' && v.startsWith('=') ? { formula: v.slice(1) } : v))),
+    }));
     const buf = await reports.exportXlsx(db, id, filtersOf(req.query), extra);
     reply.header('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     reply.header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(game.title)}.xlsx`);
@@ -692,9 +695,11 @@ export function buildApp(
 
   app.put('/api/admin/games/:id/capacity/output', async (req) => {
     const id = Number((req.params as any).id);
-    await needGame(req, id, 'run');
+    const { staff } = await needGame(req, id, 'run');
     const b = req.body as any;
     await assets.setOutput(db, id, { tactId: Number(b.tactId), accountId: Number(b.accountId), code: String(b.code), amount: b.amount });
+    // Income typed into "Счета" reaches the balances at once; expenses wait for the end of the tact.
+    if (String(b.code) === assets.EARNED) await assets.postTact(db, id, staff.id, 'revenue');
     changed(id);
     return { ok: true };
   });

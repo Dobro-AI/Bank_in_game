@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { AppError, Db, Tx } from './db.js';
 import { closeTact, membersByAccount, ownersText, tacts as listTacts } from './reports.js';
 import { hostAccountId, transferEvents, transferTx } from './transfers.js';
@@ -167,7 +168,8 @@ export async function postTact(db: Db, gameId: number, staffId: number | null, k
         toAccountId: toCompany ? r.accountId : hostId,
         amount: Math.abs(diff), comment: `${label}${done ? ' (исправление)' : ''}: ${details || 'нет'}`,
         initiatorStaffId: staffId, allowNegative: true,
-        idempotencyKey: `post:${kind}:${open.id}:${r.accountId}:${amount}`,
+        // The prefix tells corrections which posting this is; the tact row lock already rules out doubles.
+        idempotencyKey: `post:${kind}:${open.id}:${r.accountId}:${amount}:${randomUUID()}`,
       });
       await tx.query(
         `insert into tact_posting (tact_id, account_id, kind, amount, transfer_id) values ($1, $2, $3, $4, $5)

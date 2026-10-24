@@ -190,7 +190,7 @@ export async function closeTact(
   });
 }
 
-export async function exportXlsx(db: Db, gameId: number, f: Filters, extra: { title: string; rows: (string | number)[][] }[] = []) {
+export async function exportXlsx(db: Db, gameId: number, f: Filters, extra: { title: string; rows: unknown[][] }[] = []) {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Переводы');
   ws.columns = [
@@ -223,7 +223,7 @@ export async function exportXlsx(db: Db, gameId: number, f: Filters, extra: { ti
   for (const s of [ws, ss]) s.getRow(1).font = { bold: true };
   for (const sheet of extra) {
     const x = wb.addWorksheet(sheet.title);
-    for (const r of sheet.rows) x.addRow(r);
+    for (const r of sheet.rows) x.addRow(r as any[]);
     x.columns.forEach((c) => { c.width = 22; });
   }
   return Buffer.from(await wb.xlsx.writeBuffer());

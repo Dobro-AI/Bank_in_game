@@ -249,29 +249,32 @@ describe('правка переводов ведущим', () => {
   });
 });
 
-describe('лист «Деньги» в Google', () => {
+describe('Google-таблица: «Счета» и «Переводы»', () => {
   it('переводы пишутся вправо в строку компании, следующий такт начинается с остатка прошлого', async () => {
-    const { buildSheets } = await import('../src/sheets.js');
+    const { buildSheets, values } = await import('../src/sheets.js');
     const mayor = await join('Мэр');
     const banker = await join('Банкир');
     const from = await accountOf(mayor.roleId, 'individual');
     const to = await accountOf(banker.roleId, 'individual');
     await playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 30, comment: 'аренда' });
     await closeTact(db, branchId);
-    const money = (await buildSheets(db, branchId))[0];
-    const rowOf = (title: string, k = 0) => money.rows.map((r, i) => [r, i + 1] as const).filter(([r]) => r[0] === title)[k];
+    const sheet = (await buildSheets(db, branchId))[0];
+    const rows = values(sheet);
+    const rowOf = (title: string, k = 0) => rows.map((r, i) => [r, i + 1] as const).filter(([r]) => r[0] === title)[k];
     const [t1, n1] = rowOf(from.title);
-    expect(t1.slice(1, 4)).toEqual([100, `=B${n1}+SUM(D${n1}:W${n1})`, -30]);
-    expect(money.notes![n1 - 1][3]).toBe(`кому: ${to.title} — аренда`);
+    expect(t1[1]).toBe(100);
+    expect(t1[4]).toMatch(new RegExp(`^=B${n1}\\+C${n1}-D${n1}\\+SUM\\(F${n1}:`));
+    expect(t1[5]).toBe(-30);
+    expect(sheet.cells[n1 - 1][5].note).toBe(`кому: ${to.title} — аренда`);
     const [t2, n2] = rowOf(from.title, 1);
-    expect(t2[1]).toBe(`=C${n1}`);
+    expect(t2[1]).toBe(`=E${n1}`);
     // All three tacts are on the sheet from the start; the third is still empty.
-    expect(money.rows.filter((r) => /^\d такт/.test(String(r[0]))).map((r) => r[0])).toEqual(['1 такт', '2 такт — идёт', '3 такт']);
-    expect(rowOf(from.title, 2)[0][1]).toBe(`=C${n2}`);
+    expect(rows.filter((r) => /^\d такт/.test(String(r[0]))).map((r) => r[0])).toEqual(['1 такт', '2 такт — идёт', '3 такт']);
+    expect(rowOf(from.title, 2)[0][1]).toBe(`=E${n2}`);
   });
 
   it('отказанные переводы попадают в «Переводы» со статусом и причиной', async () => {
-    const { buildSheets } = await import('../src/sheets.js');
+    const { buildSheets, values } = await import('../src/sheets.js');
     const mayor = await join('Мэр');
     const banker = await join('Банкир');
     const from = await accountOf(mayor.roleId, 'individual');
@@ -279,7 +282,7 @@ describe('лист «Деньги» в Google', () => {
     await expect(playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 500, comment: 'много' }))
       .rejects.toThrow('Недостаточно средств');
     await playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 5 });
-    const log = (await buildSheets(db, branchId)).find((x) => x.title === 'Переводы')!.rows;
+    const log = values((await buildSheets(db, branchId)).find((x) => x.title === 'Переводы')!);
     expect(log[0].slice(0, 2)).toEqual(['Статус', 'Причина']);
     const mine = log.filter((r) => r[5] === from.title);
     expect(mine.map((r) => [r[0], r[1], r[8]])).toEqual([['Отклонено', 'Недостаточно средств на счёте', 500], ['Принято', '', 5]]);

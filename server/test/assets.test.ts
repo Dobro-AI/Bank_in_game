@@ -3,7 +3,7 @@ import * as assets from '../src/assets.js';
 import { Db, openDb } from '../src/db.js';
 import * as games from '../src/games.js';
 import { closeTact } from '../src/reports.js';
-import { buildSheets, parseSheetId } from '../src/sheets.js';
+import { buildSheets, parseSheetId, values } from '../src/sheets.js';
 import { payFixedPrice } from '../src/transfers.js';
 
 let db: Db;
@@ -91,17 +91,18 @@ describe('активы и мощности', () => {
 });
 
 describe('Google-таблица', () => {
-  it('собирает листы переводов, сводки, мощностей, OPEX и журнала', async () => {
+  it('три листа: «Счета», «Переводы», «Мощности» с формулами', async () => {
     const sheets = await buildSheets(db, branchId);
-    expect(sheets.map((s) => s.title)).toEqual(['Деньги', 'Переводы', 'Сводка', 'Мощности', 'Выручка и OPEX', 'Журнал активов']);
-    const capacity = sheets.find((s) => s.title === 'Мощности')!.rows;
-    expect(capacity).toContainEqual(['IVI', 'Сервер', 0, 2, 2, 60, 'ч', 0]);
-    expect(sheets[1].rows[1]).toContain('Стартовый баланс');
-    // "Деньги": start capital in B, the balance in C sums every transfer written to the right.
-    const money = sheets[0];
-    const n = money.rows.findIndex((r) => r[0] === 'IVI') + 1;
-    expect(money.rows[n - 1]).toEqual(['IVI', expect.any(Number), `=B${n}+SUM(D${n}:W${n})`]);
-    expect(money.styles![1]).toBe('tact');
+    expect(sheets.map((s) => s.title)).toEqual(['Счета', 'Переводы', 'Мощности']);
+    const [accounts, log, capacity] = sheets.map(values);
+    expect(log[1]).toContain('Стартовый баланс');
+    // "Мощности": quantity × expense of one unit, quantity × capacity of one unit.
+    const c = capacity.findIndex((r) => r[0] === 'IVI' && r[1] === 'Сервер') + 1;
+    expect(capacity[c - 1].slice(0, 8)).toEqual(['IVI', 'Сервер', 2, 10, `=C${c}*D${c}`, 30, `=C${c}*F${c}`, 'ч']);
+    // "Счета": start capital in B, income in C, expenses taken from "Мощности", the balance in E.
+    const n = accounts.findIndex((r) => r[0] === 'IVI') + 1;
+    const ivi = capacity.map((r, i) => [r[0], i + 1]).filter(([t]) => t === 'IVI').map(([, i]) => i);
+    expect(accounts[n - 1].slice(0, 5)).toEqual(['IVI', expect.any(Number), 0, `=SUM('Мощности'!E${ivi[0]}:E${ivi.at(-1)})`, expect.stringMatching(new RegExp(`^=B${n}\\+C${n}-D${n}\\+SUM\\(F${n}:`))]);
   });
 
   it('понимает ссылку на таблицу', () => {
@@ -145,6 +146,12 @@ describe('расчётка такта', () => {
     await assets.setOutput(db, branchId, { tactId: tact.id, accountId: ivi.id, code: assets.EARNED, amount: 50 });
     await assets.postTact(db, branchId, staffId, 'revenue');
     expect((await company('IVI')).balance).toBe(100 + 50);
+    // Back and forth to an amount posted before: each change is posted again, never refused.
+    for (const amount of [70, 50]) {
+      await assets.setOutput(db, branchId, { tactId: tact.id, accountId: ivi.id, code: assets.EARNED, amount });
+      await assets.postTact(db, branchId, staffId, 'revenue');
+      expect((await company('IVI')).balance).toBe(100 + amount);
+    }
 
     const r = await assets.finishTact(db, branchId, staffId);
     expect(r).toMatchObject({ opex: 20, revenue: 0 });
