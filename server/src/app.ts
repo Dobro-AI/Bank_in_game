@@ -686,9 +686,9 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   // ---------- Google Sheets mirror ----------
 
   async function sheetStatus(id: number) {
-    const [g] = await db.query('select sheet_id, sheet_synced_at, sheet_error, drive_folder_id from game where id = $1', [id]);
+    const [g] = await db.query('select sheet_id, sheet_synced_at, sheet_error, drive_folder_id, sheet_gids from game where id = $1', [id]);
     return {
-      sheetId: g.sheet_id, syncedAt: g.sheet_synced_at, error: g.sheet_error, serviceEmail: sheets.serviceEmail(),
+      sheetId: g.sheet_id, gids: g.sheet_gids, syncedAt: g.sheet_synced_at, error: g.sheet_error, serviceEmail: sheets.serviceEmail(),
       baseFolderId: await sheets.getSetting(db, 'drive_folder_id'), gameFolderId: g.drive_folder_id,
       oauthConfigured: googleUser.oauthConfigured(), googleUser: await googleUser.connectedEmail(db),
     };
@@ -752,7 +752,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     const id = Number((req.params as any).id);
     await needGame(req, id, 'config');
     const sheetId = sheets.parseSheetId((req.body as any).sheet);
-    await db.query("update game set sheet_id = $2, sheet_error = '', sheet_synced_at = null where id = $1", [id, sheetId]);
+    await db.query("update game set sheet_id = $2, sheet_error = '', sheet_synced_at = null, sheet_gids = '{}' where id = $1", [id, sheetId]);
     if (sheetId) {
       // Tidy up: move the sheet into the game's subfolder; a failure here never blocks the sync.
       await sheets.placeInFolder(db, id).catch((e) => console.error('drive place', e?.response?.data?.error?.message ?? e));

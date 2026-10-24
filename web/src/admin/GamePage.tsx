@@ -10,6 +10,7 @@ import { Codes } from './Codes';
 import { Config } from './Config';
 import { AdminShell, NavItem } from './Shell';
 import { Sheet } from './Sheet';
+import { SheetView } from './SheetView';
 
 export interface GameData {
   game: any; roles: any[]; startAccounts: any[]; priceItems: any[]; assetTypes: any[]; staff: Staff[]; branches: any[];
@@ -68,12 +69,15 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
         {!isRoot && d.game.status === 'active' && <OpenTact tacts={ctx.tacts} />}
       </header>
       {!isRoot && d.game.status === 'draft' && <LaunchBanner ctx={ctx} />}
-      {current === 'summary' && <Summary ctx={ctx} />}
-      {current === 'transfers' && <Transfers ctx={ctx} />}
+      {current === 'summary' && <SheetView ctx={ctx} section="summary" tabs={['Сводка']}><Summary ctx={ctx} /></SheetView>}
+      {current === 'transfers' && <SheetView ctx={ctx} section="transfers" tabs={['Переводы']}><Transfers ctx={ctx} /></SheetView>}
       {current === 'people' && <People ctx={ctx} />}
       {current === 'codes' && <Codes ctx={ctx} />}
       {current === 'adjust' && <Adjust ctx={ctx} />}
-      {current === 'capacity' && <Capacity ctx={ctx} />}
+      {current === 'capacity' && (
+        // Served hours are entered in the bank's table, so it stays the default here.
+        <SheetView ctx={ctx} section="capacity" tabs={['Мощности', 'Выручка и OPEX', 'Журнал активов']} initial="bank"><Capacity ctx={ctx} /></SheetView>
+      )}
       {current === 'sheet' && <Sheet ctx={ctx} />}
       {current === 'tacts' && <Tacts ctx={ctx} />}
       {current === 'config' && <Config ctx={ctx} />}

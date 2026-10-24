@@ -232,28 +232,38 @@ export async function buildSheets(db: Db, gameId: number): Promise<{ title: stri
 const API = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 export async function syncNow(db: Db, gameId: number) {
-  const [g] = await db.query('select sheet_id from game where id = $1', [gameId]);
+  const [g] = await db.query('select sheet_id, sheet_gids from game where id = $1', [gameId]);
   if (!g?.sheet_id) throw new AppError('Google-таблица не подключена');
   try {
     const api = google();
     const sheets = await buildSheets(db, gameId);
-    const meta = await api.request<{ sheets: { properties: { title: string } }[] }>({ url: `${API}/${g.sheet_id}?fields=sheets.properties.title` });
-    const existing = new Set(meta.data.sheets.map((s) => s.properties.title));
-    const missing = sheets.filter((s) => !existing.has(s.title));
-    if (missing.length) {
-      await api.request({
-        url: `${API}/${g.sheet_id}:batchUpdate`, method: 'POST',
-        data: { requests: missing.map((s) => ({ addSheet: { properties: { title: s.title } } })) },
+    // Tab ids are remembered; Google is asked only when a tab is missing (first sync, deleted tab).
+    let gids: Record<string, number> = g.sheet_gids ?? {};
+    if (!sheets.every((s) => s.title in gids)) {
+      const meta = await api.request<{ sheets: { properties: { title: string; sheetId: number } }[] }>({
+        url: `${API}/${g.sheet_id}?fields=sheets.properties(title,sheetId)`,
       });
+      gids = Object.fromEntries(meta.data.sheets.map((x) => [x.properties.title, x.properties.sheetId]));
+      const missing = sheets.filter((x) => !(x.title in gids));
+      if (missing.length) {
+        const added = await api.request<{ replies: { addSheet: { properties: { title: string; sheetId: number } } }[] }>({
+          url: `${API}/${g.sheet_id}:batchUpdate`, method: 'POST',
+          data: { requests: missing.map((x) => ({ addSheet: { properties: { title: x.title } } })) },
+        });
+        for (const r of added.data.replies) gids[r.addSheet.properties.title] = r.addSheet.properties.sheetId;
+      }
+      await db.query('update game set sheet_gids = $2 where id = $1', [gameId, JSON.stringify(gids)]);
     }
     const range = (title: string) => `'${title}'`;
-    await api.request({ url: `${API}/${g.sheet_id}/values:batchClear`, method: 'POST', data: { ranges: sheets.map((s) => range(s.title)) } });
+    await api.request({ url: `${API}/${g.sheet_id}/values:batchClear`, method: 'POST', data: { ranges: sheets.map((x) => range(x.title)) } });
     await api.request({
       url: `${API}/${g.sheet_id}/values:batchUpdate`, method: 'POST',
-      data: { valueInputOption: 'RAW', data: sheets.map((s) => ({ range: `${range(s.title)}!A1`, values: s.rows })) },
+      data: { valueInputOption: 'RAW', data: sheets.map((x) => ({ range: `${range(x.title)}!A1`, values: x.rows })) },
     });
     await db.query("update game set sheet_synced_at = now(), sheet_error = '' where id = $1", [gameId]);
   } catch (e: any) {
+    // A tab deleted by hand makes the remembered ids stale: forget them, the next sync re-reads.
+    if (e?.response?.status === 400) await db.query("update game set sheet_gids = '{}' where id = $1", [gameId]).catch(() => {});
     const message = e instanceof AppError ? e.message
       : e?.response?.status === 403 || e?.response?.status === 404 ? `Нет доступа к таблице: откройте её для ${serviceEmail()} с правом редактирования`
       : 'Не удалось записать в Google-таблицу';
@@ -264,14 +274,25 @@ export async function syncNow(db: Db, gameId: number) {
 }
 
 const timers = new Map<number, NodeJS.Timeout>();
+const running = new Set<number>();
+const again = new Set<number>();
 
-/** Debounced background sync after a change; a burst of transfers becomes one write. */
-export function scheduleSync(db: Db, gameId: number, delayMs = 3000) {
+/**
+ * Writes a game to its sheet about a second after a change. Changes arriving meanwhile join the
+ * same write; one arriving during a write triggers one more right after. Two Google calls per write
+ * keep a busy game well inside the Sheets API quota.
+ */
+export function scheduleSync(db: Db, gameId: number, delayMs = 1200) {
   if (!credentials()) return;
-  clearTimeout(timers.get(gameId));
+  if (running.has(gameId)) { again.add(gameId); return; }
+  if (timers.has(gameId)) return;
   timers.set(gameId, setTimeout(async () => {
     timers.delete(gameId);
     const [g] = await db.query('select sheet_id from game where id = $1', [gameId]).catch(() => [null]);
-    if (g?.sheet_id) await syncNow(db, gameId).catch(() => {});
+    if (!g?.sheet_id) return;
+    running.add(gameId);
+    await syncNow(db, gameId).catch(() => {});
+    running.delete(gameId);
+    if (again.delete(gameId)) scheduleSync(db, gameId, delayMs);
   }, delayMs));
 }

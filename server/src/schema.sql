@@ -287,3 +287,6 @@ alter table game add column if not exists visible boolean not null default true;
 -- Several people may play one role (a team of one company): one player row per person.
 alter table player drop constraint if exists player_role_id_key;
 create index if not exists player_role_idx on player (role_id);
+
+-- Google sheet tab ids by title, so the cabinet can show each tab and the sync skips a lookup.
+alter table game add column if not exists sheet_gids jsonb not null default '{}';
