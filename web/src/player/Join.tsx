@@ -1,80 +1,61 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
 import { api, useLoad } from '../api';
-import { Empty, ErrorText, Field } from '../ui';
+import { ErrorText, Field } from '../ui';
 import { telegramInitData } from '../telegram';
 
 interface Game { id: number; title: string; hosts: string }
 interface Role { id: number; title: string; description: string; presetFirstName: string; presetLastName: string; taken: boolean }
+interface GameRoles { game: Game; roles: Role[] }
 
-/** First entry: game and host → role → name → 4-digit role code. A taken role re-enters by code only. */
-export function Join({ onJoined }: { onJoined: () => void }) {
-  const [game, setGame] = useState<Game>();
-  const [role, setRole] = useState<Role>();
-  const games = useLoad(() => api<Game[]>('/api/public/games'), []);
-  const roles = useLoad(() => (game ? api<Role[]>(`/api/public/games/${game.id}/roles`) : Promise.resolve([])), [game?.id]);
-
-  if (!game) {
-    return (
-      <main className="page narrow">
-        <h1>Выберите игру</h1>
-        <p className="muted">Игра и её ведущий</p>
-        <ErrorText error={games.error} />
-        <div className="list">
-          {games.data?.map((g) => (
-            <button key={g.id} className="list-item" onClick={() => setGame(g)}>
-              <div className="grow">
-                <div className="list-title">{g.title}</div>
-                <div className="list-sub">Ведущий: {g.hosts || '—'}</div>
-              </div>
-              <span aria-hidden>›</span>
-            </button>
-          ))}
-          {games.data?.length === 0 && <Empty>Сейчас нет запущенных игр</Empty>}
-        </div>
-      </main>
-    );
-  }
-
-  if (!role) {
-    return (
-      <main className="page narrow">
-        <button className="btn link" onClick={() => setGame(undefined)}>← Другая игра</button>
-        <h1>{game.title}</h1>
-        <p className="muted">Выберите свою роль. Если роль уже ваша — войдите по коду.</p>
-        <ErrorText error={roles.error} />
-        <div className="list">
-          {roles.data?.map((r) => (
-            <button key={r.id} className="list-item" onClick={() => setRole(r)}>
-              <div className="grow">
-                <div className="list-title">{r.title}</div>
-                {r.description && <div className="list-sub">{r.description}</div>}
-              </div>
-              {r.taken && <span className="chip">занята</span>}
-              <span aria-hidden>›</span>
-            </button>
-          ))}
-          {roles.data?.length === 0 && <Empty>Ведущий ещё не добавил роли</Empty>}
-        </div>
-      </main>
-    );
-  }
-
-  return <RoleForm game={game} role={role} onBack={() => setRole(undefined)} onJoined={onJoined} />;
+/** Roles of every game open to players right now (usually one game at a time). */
+async function openRoles(): Promise<GameRoles[]> {
+  const games = await api<Game[]>('/api/public/games');
+  return Promise.all(games.map(async (game) => ({ game, roles: await api<Role[]>(`/api/public/games/${game.id}/roles`) })));
 }
 
-function RoleForm({ game, role, onBack, onJoined }: { game: Game; role: Role; onBack: () => void; onJoined: () => void }) {
-  const [firstName, setFirst] = useState(role.presetFirstName);
-  const [lastName, setLast] = useState(role.presetLastName);
+/** One screen: name and surname, role, 4-digit role code. A taken role re-enters by code only. */
+export function Join({ onJoined }: { onJoined: () => void }) {
+  const data = useLoad(openRoles, []);
+  const [name, setName] = useState('');
+  const [pick, setPick] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
+  const groups = data.data ?? [];
+  const single = groups.length === 1 ? groups[0].game : null;
+  const chosen = useMemo(() => {
+    const [gameId, roleId] = pick.split(':').map(Number);
+    const g = groups.find((x) => x.game.id === gameId);
+    const role = g?.roles.find((r) => r.id === roleId);
+    return g && role ? { game: g.game, role } : null;
+  }, [pick, groups]);
+
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const needName = !chosen?.role.taken;
+  const nameOk = !needName || words.length >= 2;
+
+  function choose(value: string) {
+    setPick(value);
+    setError(undefined);
+    // A role prepared by the host may already carry the player's name.
+    const [gameId, roleId] = value.split(':').map(Number);
+    const role = groups.find((x) => x.game.id === gameId)?.roles.find((r) => r.id === roleId);
+    if (role && !name.trim() && role.presetFirstName) setName(`${role.presetFirstName} ${role.presetLastName}`.trim());
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!chosen) return;
     setBusy(true);
     setError(undefined);
     try {
-      await api('/api/player/join', { body: { gameId: game.id, roleId: role.id, firstName, lastName, code, initData: telegramInitData() } });
+      await api('/api/player/join', {
+        body: {
+          gameId: chosen.game.id, roleId: chosen.role.id, code, initData: telegramInitData(),
+          firstName: words[0] ?? '', lastName: words.slice(1).join(' '),
+        },
+      });
       onJoined();
     } catch (err: any) {
       setError(err.message);
@@ -82,24 +63,48 @@ function RoleForm({ game, role, onBack, onJoined }: { game: Game; role: Role; on
     }
   }
 
+  if (data.data && !groups.length) {
+    return (
+      <main className="page narrow center-page">
+        <h1>Игровой банк</h1>
+        <p className="muted">Сейчас нет открытых игр. Дождитесь, пока игротехник откроет игру.</p>
+      </main>
+    );
+  }
+
+  const label = (r: Role) => `${r.title}${r.description ? ` — ${r.description}` : ''}${r.taken ? ' (уже занята — вход по коду)' : ''}`;
+
   return (
-    <main className="page narrow">
-      <button className="btn link" onClick={onBack}>← Другая роль</button>
-      <h1>{role.title}</h1>
-      <p className="muted">{game.title}</p>
+    <main className="page narrow center-page">
+      <h1>Игровой банк</h1>
+      <p className="muted">{single ? single.title : 'Войдите в игру'}</p>
+      <ErrorText error={data.error} />
       <form className="stack" onSubmit={submit}>
-        {!role.taken && (
-          <>
-            <Field label="Имя"><input value={firstName} onChange={(e) => setFirst(e.target.value)} required autoComplete="given-name" /></Field>
-            <Field label="Фамилия"><input value={lastName} onChange={(e) => setLast(e.target.value)} required autoComplete="family-name" /></Field>
-          </>
-        )}
-        <Field label="Код роли" hint="4 цифры, их выдаёт ведущий">
+        <Field label="Имя и фамилия" hint={needName ? undefined : 'Роль уже занята: достаточно кода'}>
+          <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="Иван Петров"
+            required={needName} />
+        </Field>
+        <Field label="Роль">
+          <select value={pick} onChange={(e) => choose(e.target.value)} required>
+            <option value="">Выберите роль…</option>
+            {single
+              ? groups[0].roles.map((r) => <option key={r.id} value={`${single.id}:${r.id}`}>{label(r)}</option>)
+              : groups.map((g) => (
+                <optgroup key={g.game.id} label={g.game.title}>
+                  {g.roles.map((r) => <option key={r.id} value={`${g.game.id}:${r.id}`}>{label(r)}</option>)}
+                </optgroup>
+              ))}
+          </select>
+        </Field>
+        <Field label="Код роли" hint="4 цифры, их выдаёт игротехник">
           <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
             inputMode="numeric" pattern="\d{4}" required autoComplete="one-time-code" className="code" />
         </Field>
+        {needName && name.trim() && words.length < 2 && <p className="small muted">Напишите имя и фамилию через пробел.</p>}
         <ErrorText error={error} />
-        <button className="btn primary block" disabled={busy || code.length !== 4}>{busy ? 'Проверяем…' : 'Войти'}</button>
+        <button className="btn primary block" disabled={busy || !chosen || code.length !== 4 || !nameOk}>
+          {busy ? 'Проверяем…' : 'Войти'}
+        </button>
       </form>
     </main>
   );

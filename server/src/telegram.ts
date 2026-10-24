@@ -122,7 +122,9 @@ export function createBot(db: Db, token: string) {
 
   async function startJoin(ctx: any) {
     const list = await db.query("select id, title from game where kind = 'branch' and status = 'active' and visible order by title");
-    if (!list.length) return ctx.reply('Сейчас нет запущенных игр. Дождитесь, пока ведущий запустит игру.');
+    if (!list.length) return ctx.reply('Сейчас нет открытых игр. Дождитесь, пока игротехник откроет игру.');
+    // Usually one game is open at a time: go straight to its roles.
+    if (list.length === 1) return showRoles(ctx, list[0].id, false);
     const kb = new InlineKeyboard();
     for (const g of list) kb.text(g.title, `g:${g.id}`).row();
     return ctx.reply('Добро пожаловать в игровой банк! Выберите игру:', { reply_markup: kb });
@@ -161,8 +163,7 @@ export function createBot(db: Db, token: string) {
       { reply_markup: menu() },
     ));
 
-  bot.callbackQuery(/^g:(\d+)$/, async (ctx) => {
-    const gameId = Number(ctx.match[1]);
+  async function showRoles(ctx: any, gameId: number, edit: boolean) {
     const roles = await db.query(
       `select r.id, r.title, (p.id is not null) as taken from role r join game g on g.id = r.game_id
        left join player p on p.role_id = r.id where r.game_id = $1 and g.status = 'active' and g.visible order by r.title`,
@@ -170,8 +171,14 @@ export function createBot(db: Db, token: string) {
     );
     const kb = new InlineKeyboard();
     for (const r of roles) kb.text(r.taken ? `${r.title} · войти по коду` : r.title, `r:${gameId}:${r.id}`).row();
+    const [g] = await db.query('select title from game where id = $1', [gameId]);
+    const text = `Добро пожаловать в игровой банк!\n${g?.title ?? ''}\n\nВыберите свою роль:`;
+    return edit ? ctx.editMessageText(text, { reply_markup: kb }) : ctx.reply(text, { reply_markup: kb });
+  }
+
+  bot.callbackQuery(/^g:(\d+)$/, async (ctx) => {
     await ctx.answerCallbackQuery();
-    return ctx.editMessageText('Выберите свою роль:', { reply_markup: kb });
+    return showRoles(ctx, Number(ctx.match[1]), true);
   });
 
   bot.callbackQuery(/^r:(\d+):(\d+)$/, async (ctx) => {
