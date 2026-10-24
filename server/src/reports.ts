@@ -104,13 +104,16 @@ export async function summary(db: Tx, gameId: number, tactId?: number) {
     const start = new Map(startRows.map((r) => [r.account_id, r.balance_end]));
     const moves = await db.query(
       `select a.id,
-         coalesce((select sum(amount) from transfer where tact_id = $2 and to_account_id = a.id), 0) as received,
-         coalesce((select sum(amount) from transfer where tact_id = $2 and from_account_id = a.id), 0) as sent
+         coalesce((select sum(amount) from transfer where tact_id = $2 and to_account_id = a.id and kind <> 'initial'), 0) as received,
+         coalesce((select sum(amount) from transfer where tact_id = $2 and from_account_id = a.id and kind <> 'initial'), 0) as sent,
+         coalesce((select sum(case when to_account_id = a.id then amount else -amount end) from transfer
+                   where tact_id = $2 and kind = 'initial' and a.id in (to_account_id, from_account_id)), 0) as initial
        from account a where a.game_id = $1`,
       [gameId, tact.id],
     );
+    // Start-up capital counts as money at the start of the tact, not as an incoming transfer.
     rows = moves.map((m) => {
-      const s = start.get(m.id) ?? 0;
+      const s = (start.get(m.id) ?? 0) + Number(m.initial);
       return { accountId: m.id, balanceStart: s, received: Number(m.received), sent: Number(m.sent),
         balanceEnd: s + Number(m.received) - Number(m.sent) };
     });

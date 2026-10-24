@@ -16,7 +16,7 @@ import * as sheets from './sheets.js';
 import * as telegram from './telegram.js';
 import * as hostBot from './telegram-host.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
-import { hostAdjust, payFixedPrice, playerTransfer } from './transfers.js';
+import { hostAdjust, payFixedPrice, playerTransfer, transfer } from './transfers.js';
 
 const STAFF_COOKIE = 'sid';
 const PLAYER_COOKIE = 'psid';
@@ -619,10 +619,26 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     return res;
   });
 
+  /** The host moves money between two companies (e.g. a signed paper slip). Balance rules apply. */
+  app.post('/api/admin/games/:id/transfer', async (req) => {
+    const id = Number((req.params as any).id);
+    const { staff } = await needGame(req, id, 'run');
+    const b = req.body as any;
+    const [to] = await db.query('select kind from account where id = $1 and game_id = $2', [Number(b.toAccountId), id]);
+    if (!to) throw new AppError('Получатель не найден', 404);
+    const res = await transfer(db, {
+      gameId: id, kind: to.kind === 'host' ? 'to_host' : 'player', fromAccountId: Number(b.fromAccountId), toAccountId: Number(b.toAccountId),
+      amount: b.amount, comment: b.comment, initiatorStaffId: staff.id,
+      idempotencyKey: b.idempotencyKey ? `s${staff.id}:${String(b.idempotencyKey).slice(0, 100)}` : null,
+    });
+    changed(id);
+    return res;
+  });
+
   app.post('/api/admin/games/:id/close-tact', async (req) => {
     const id = Number((req.params as any).id);
-    await needGame(req, id, 'run');
-    const res = await reports.closeTact(db, id, (tx, closed, next) => assets.ageAssets(tx, id, closed, next));
+    const { staff } = await needGame(req, id, 'run');
+    const res = await assets.finishTact(db, id, staff.id);
     changed(id);
     return res;
   });

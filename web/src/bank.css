@@ -276,3 +276,12 @@ a.settings-row:hover, button.settings-row:hover { background: #fcfcfc; }
 .dd-option.disabled { opacity: 0.45; cursor: default; }
 .dd-empty { padding: 12px; color: var(--muted, #6b7280); }
 .codes-text { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 14px; background: var(--surface); }
+
+/* ---------- Расчётка ---------- */
+.calc td { vertical-align: top; }
+.calc .in .money { color: var(--in); }
+.calc-assets { display: flex; flex-direction: column; gap: 6px; min-width: 260px; }
+.calc-asset { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; }
+.calc-asset .formula { grid-column: 1 / -1; }
+.formula { font-variant-numeric: tabular-nums; }
+.calc .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }

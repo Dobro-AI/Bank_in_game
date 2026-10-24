@@ -128,3 +128,22 @@ describe('готовые игры', () => {
     expect(steamRow).toMatchObject({ capacity: { 'ч': 90 }, opex: 30 });
   });
 });
+
+describe('расчётка такта', () => {
+  it('вписанный заработок и расходы проводятся при завершении такта, правка — только разницей', async () => {
+    const ivi = await company('IVI');
+    const { tact } = await assets.capacityTable(db, branchId);
+    await assets.setOutput(db, branchId, { tactId: tact.id, accountId: ivi.id, code: assets.EARNED, amount: 70 });
+    expect(await row('IVI')).toMatchObject({ earned: 70, revenue: 70, opex: 20 });
+
+    await assets.postTact(db, branchId, staffId, 'revenue');
+    await assets.setOutput(db, branchId, { tactId: tact.id, accountId: ivi.id, code: assets.EARNED, amount: 50 });
+    await assets.postTact(db, branchId, staffId, 'revenue');
+    expect((await company('IVI')).balance).toBe(100 + 50);
+
+    const r = await assets.finishTact(db, branchId, staffId);
+    expect(r).toMatchObject({ opex: 20, revenue: 0 });
+    expect((await company('IVI')).balance).toBe(100 + 50 - 20);
+    expect(r.next.number).toBe(2);
+  });
+});

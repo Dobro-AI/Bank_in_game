@@ -5,7 +5,7 @@ import { Bot, InlineKeyboard, Keyboard } from 'grammy';
 import * as assets from './assets.js';
 import * as assistant from './assistant.js';
 import { AppError, Db } from './db.js';
-import { KIND_LABEL, closeTact, listTransfers, summary } from './reports.js';
+import { KIND_LABEL, listTransfers, summary } from './reports.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
 import { hostAdjust, transferEvents } from './transfers.js';
 
@@ -287,7 +287,7 @@ export function createHostBot(db: Db, token: string) {
 
   bot.callbackQuery('tc:ask', async (ctx) => {
     await ctx.answerCallbackQuery();
-    return ctx.editMessageText('Завершить такт? Балансы зафиксируются в слепке, сразу начнётся следующий такт, грузовики постареют, разовые технологии исчезнут.',
+    return ctx.editMessageText('Завершить такт? Компаниям начислится заработок и спишутся расходы, балансы зафиксируются, начнётся следующий такт.',
       { reply_markup: new InlineKeyboard().text('Завершить', 'tc:yes').text('Отмена', 'hno') });
   });
 
@@ -296,8 +296,8 @@ export function createHostBot(db: Db, token: string) {
     const s = await needGame(ctx);
     if (!s || !(await needRun(ctx, s))) return;
     try {
-      const r = await closeTact(db, s.gameId, (tx, closed, next) => assets.ageAssets(tx, s.gameId, closed, next));
-      return ctx.editMessageText(`Такт ${r.closed.number} завершён. Идёт такт ${r.next.number}.`);
+      const r = await assets.finishTact(db, s.gameId, s.staffId);
+      return ctx.editMessageText(`Такт ${r.closed.number} завершён: начислено ${fmt(r.revenue)}, списано расходов ${fmt(r.opex)}. Идёт такт ${r.next.number}.`);
     } catch (e: any) {
       return ctx.editMessageText(`Не получилось: ${e instanceof AppError ? e.message : 'ошибка сервера'}`);
     }

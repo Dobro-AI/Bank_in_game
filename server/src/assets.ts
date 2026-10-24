@@ -1,5 +1,5 @@
 import { AppError, Db, Tx } from './db.js';
-import { membersByAccount, ownersText, tacts as listTacts } from './reports.js';
+import { closeTact, membersByAccount, ownersText, tacts as listTacts } from './reports.js';
 import { hostAccountId, transferEvents, transferTx } from './transfers.js';
 
 /**
@@ -7,6 +7,9 @@ import { hostAccountId, transferEvents, transferTx } from './transfers.js';
  * Per tact the host enters served output (hours, trips); revenue and OPEX are computed from
  * holdings and output and posted to accounts with one button each.
  */
+
+/** tact_output row holding money the host typed in as "earned this tact" (not tied to an asset). */
+export const EARNED = '__earned';
 
 export async function assetTypes(db: Tx, gameId: number) {
   return db.query('select * from asset_type where game_id = $1 order by sort, title', [gameId]);
@@ -48,8 +51,8 @@ export async function capacityTable(db: Tx, gameId: number, tactId?: number) {
   const accounts = await db.query("select id, kind, title, balance from account where game_id = $1 and kind <> 'host' order by kind, title", [gameId]);
   const members = await membersByAccount(db, gameId);
 
+  // Every company is listed: the host may type earnings even for one without assets.
   const rows = accounts
-    .filter((a) => after.has(a.id) || before.has(a.id) || outputs.some((o) => o.account_id === a.id))
     .map((a) => {
       const start = before.get(a.id) ?? new Map<string, number>();
       const end = after.get(a.id) ?? new Map<string, number>();
@@ -66,8 +69,10 @@ export async function capacityTable(db: Tx, gameId: number, tactId?: number) {
       const served: Record<string, number> = {};
       const revenueParts: string[] = [];
       const opexParts: string[] = [];
-      let revenue = 0;
+      const earned = out.get(EARNED) ?? 0;
+      let revenue = earned;
       let opex = 0;
+      if (earned) revenueParts.push(`Заработано: ${earned}`);
       for (const x of assets) {
         const t = typeBy.get(x.code)!;
         if (x.capacityUnit) {
@@ -94,7 +99,7 @@ export async function capacityTable(db: Tx, gameId: number, tactId?: number) {
       const post = (kind: string) => posted.find((p) => p.account_id === a.id && p.kind === kind);
       return {
         accountId: a.id, title: a.title, kind: a.kind, balance: a.balance, owner: ownersText(members.get(a.id)).owner,
-        assets, capacity, served, revenue, opex, result: revenue - opex,
+        assets, capacity, served, earned, revenue, opex, result: revenue - opex,
         revenueText: revenueParts.join('; '), opexText: opexParts.join('; '),
         postedRevenue: post('revenue')?.amount ?? null, postedOpex: post('opex')?.amount ?? null,
       };
@@ -113,11 +118,13 @@ export async function capacityTable(db: Tx, gameId: number, tactId?: number) {
 export async function setOutput(db: Db, gameId: number, body: { tactId: number; accountId: number; code: string; amount: unknown }) {
   const amount = Number(body.amount ?? 0);
   if (!Number.isSafeInteger(amount) || amount < 0) throw new AppError('Нужно целое число ≥ 0');
-  const [ok] = await db.query(
-    `select 1 from tact t, account a, asset_type at
-     where t.id = $1 and t.game_id = $4 and a.id = $2 and a.game_id = $4 and at.game_id = $4 and at.code = $3`,
-    [body.tactId, body.accountId, body.code, gameId],
-  );
+  const [ok] = body.code === EARNED
+    ? await db.query('select 1 from tact t, account a where t.id = $1 and t.game_id = $3 and a.id = $2 and a.game_id = $3', [body.tactId, body.accountId, gameId])
+    : await db.query(
+      `select 1 from tact t, account a, asset_type at
+       where t.id = $1 and t.game_id = $4 and a.id = $2 and a.game_id = $4 and at.game_id = $4 and at.code = $3`,
+      [body.tactId, body.accountId, body.code, gameId],
+    );
   if (!ok) throw new AppError('Не найдено', 404);
   if (amount === 0) {
     await db.query('delete from tact_output where tact_id = $1 and account_id = $2 and asset_code = $3', [body.tactId, body.accountId, body.code]);
@@ -131,10 +138,11 @@ export async function setOutput(db: Db, gameId: number, body: { tactId: number; 
 }
 
 /**
- * Posts revenue (credit) or OPEX (debit) of the open tact for every company that has not been
- * posted yet. OPEX may push an account below zero, as any host debit does.
+ * Posts revenue (credit) or OPEX (debit) of the open tact. Posting again after the host changed the
+ * numbers moves only the difference, so a company is never charged twice. OPEX may push an account
+ * below zero, as any host debit does.
  */
-export async function postTact(db: Db, gameId: number, staffId: number, kind: 'revenue' | 'opex') {
+export async function postTact(db: Db, gameId: number, staffId: number | null, kind: 'revenue' | 'opex') {
   if (kind !== 'revenue' && kind !== 'opex') throw new AppError('Неизвестная операция');
   const made: any[] = [];
   const res = await db.transaction(async (tx) => {
@@ -146,29 +154,45 @@ export async function postTact(db: Db, gameId: number, staffId: number, kind: 'r
     let total = 0;
     for (const r of rows) {
       const amount = kind === 'revenue' ? r.revenue : r.opex;
-      const done = kind === 'revenue' ? r.postedRevenue : r.postedOpex;
-      if (amount <= 0 || done !== null) continue;
+      const done = (kind === 'revenue' ? r.postedRevenue : r.postedOpex) ?? 0;
+      const diff = amount - done;
+      if (diff === 0) continue;
+      // Revenue goes host → company, OPEX company → host; a negative difference goes the other way.
+      const toCompany = (kind === 'revenue') === diff > 0;
       const label = kind === 'revenue' ? `Выручка за такт ${open.number}` : `OPEX за такт ${open.number}`;
       const details = kind === 'revenue' ? r.revenueText : r.opexText;
       const t = await transferTx(tx, {
-        gameId, kind: kind === 'revenue' ? 'host_credit' : 'host_debit',
-        fromAccountId: kind === 'revenue' ? hostId : r.accountId,
-        toAccountId: kind === 'revenue' ? r.accountId : hostId,
-        amount, comment: `${label}: ${details}`, initiatorStaffId: staffId, allowNegative: true,
-        idempotencyKey: `post:${kind}:${open.id}:${r.accountId}`,
+        gameId, kind: toCompany ? 'host_credit' : 'host_debit',
+        fromAccountId: toCompany ? hostId : r.accountId,
+        toAccountId: toCompany ? r.accountId : hostId,
+        amount: Math.abs(diff), comment: `${label}${done ? ' (исправление)' : ''}: ${details || 'нет'}`,
+        initiatorStaffId: staffId, allowNegative: true,
+        idempotencyKey: `post:${kind}:${open.id}:${r.accountId}:${amount}`,
       });
       await tx.query(
-        'insert into tact_posting (tact_id, account_id, kind, amount, transfer_id) values ($1, $2, $3, $4, $5)',
+        `insert into tact_posting (tact_id, account_id, kind, amount, transfer_id) values ($1, $2, $3, $4, $5)
+         on conflict (tact_id, account_id, kind) do update set amount = excluded.amount, transfer_id = excluded.transfer_id`,
         [open.id, r.accountId, kind, amount, t.id],
       );
       made.push(t);
       count++;
-      total += amount;
+      total += diff;
     }
     return { count, total, tact: open.number };
   });
   for (const t of made) transferEvents.emit('transfer', t);
   return res;
+}
+
+/**
+ * Ends the tact the way the organisers' sheet does: earnings are credited and expenses are
+ * subtracted from every company, then balances are frozen and the next tact starts (assets age).
+ */
+export async function finishTact(db: Db, gameId: number, staffId: number | null) {
+  const revenue = await postTact(db, gameId, staffId, 'revenue');
+  const opex = await postTact(db, gameId, staffId, 'opex');
+  const r = await closeTact(db, gameId, (tx, closed, next) => ageAssets(tx, gameId, closed, next));
+  return { ...r, revenue: revenue.total, opex: opex.total };
 }
 
 // ---------- Ledger: the host's manual edits ----------

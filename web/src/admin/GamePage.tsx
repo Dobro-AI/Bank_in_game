@@ -5,6 +5,7 @@ import { AdjustIcon, BadgeIcon, BoxIcon, BranchIcon, ChartIcon, FlagIcon, GearIc
 import { Confirm, Empty, ErrorText, Field, Money } from '../ui';
 import type { Staff } from './AdminApp';
 import { Assistant } from './Assistant';
+import { Calc } from './Calc';
 import { Capacity } from './Capacity';
 import { Codes } from './Codes';
 import { Config } from './Config';
@@ -17,9 +18,10 @@ export interface GameData {
   can: { config: boolean; run: boolean; super: boolean };
 }
 
-type Section = 'summary' | 'transfers' | 'people' | 'codes' | 'adjust' | 'capacity' | 'tacts' | 'sheet' | 'config' | 'staff' | 'branches' | 'assistant';
+type Section = 'calc' | 'summary' | 'transfers' | 'people' | 'codes' | 'adjust' | 'capacity' | 'tacts' | 'sheet' | 'config' | 'staff' | 'branches' | 'assistant';
 
 const SECTIONS: Record<Section, { label: string; icon: ReactNode }> = {
+  calc: { label: 'Расчётка', icon: <TableIcon /> },
   summary: { label: 'Сводка', icon: <ChartIcon /> },
   transfers: { label: 'Переводы', icon: <TransferIcon /> },
   people: { label: 'Участники', icon: <UsersIcon /> },
@@ -49,7 +51,7 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
   const isRoot = d.game.kind === 'root';
   const sections: Section[] = isRoot
     ? ['config', 'branches', 'assistant']
-    : ['summary', 'transfers', 'capacity', 'people', 'codes', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'sheet', 'assistant', 'config', 'staff'];
+    : ['calc', 'summary', 'transfers', 'capacity', 'people', 'codes', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'sheet', 'assistant', 'config', 'staff'];
   const current = sections.includes(params.section as Section) ? (params.section as Section) : sections[0];
   const ctx = { id, d, accounts: accounts.data ?? [], tacts: tacts.data ?? [], tick, reload: () => { data.reload(); accounts.reload(); tacts.reload(); } };
   const items: NavItem[] = sections.map((k, i) => ({
@@ -71,6 +73,7 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
       {!isRoot && d.game.status === 'draft' && <LaunchBanner ctx={ctx} />}
       {current === 'summary' && <SheetView ctx={ctx} section="summary" tabs={['Сводка']}><Summary ctx={ctx} /></SheetView>}
       {current === 'transfers' && <SheetView ctx={ctx} section="transfers" tabs={['Переводы']}><Transfers ctx={ctx} /></SheetView>}
+      {current === 'calc' && <Calc ctx={ctx} />}
       {current === 'people' && <People ctx={ctx} />}
       {current === 'codes' && <Codes ctx={ctx} />}
       {current === 'adjust' && <Adjust ctx={ctx} />}
