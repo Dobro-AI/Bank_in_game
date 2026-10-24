@@ -28,7 +28,7 @@ export function serviceEmail() {
 }
 
 let client: JWT | null = null;
-function google() {
+export function google() {
   const c = credentials();
   if (!c) throw new AppError('Google не настроен: задайте GOOGLE_SERVICE_ACCOUNT_JSON на сервере', 503);
   client ??= new JWT({ email: c.client_email, key: c.private_key, scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive'] });
@@ -505,7 +505,7 @@ const norm = (v: unknown): Cell => {
 };
 
 /** The cells a game master changed in one spreadsheet since the bank last wrote it. */
-async function readEdits(db: Db, api: JWT, sheetId: string) {
+export async function readEdits(db: Db, api: JWT, sheetId: string) {
   const states = await db.query('select title, cells from sheet_state where sheet_id = $1', [sheetId]);
   if (!states.length) return [];
   const query = states.map((x) => `ranges=${encodeURIComponent(`'${x.title}'`)}`).join('&');
@@ -592,6 +592,11 @@ export function onSheetEdits(fn: (gameId: number) => void) { editListener = fn; 
  */
 export function startPolling(db: Db, everyMs = 20_000) {
   if (!credentials()) return () => {};
+  // Edits are found by comparing with what the bank wrote: after a restart, write every sheet once.
+  db.query(
+    `select id from game g where kind = 'branch' and status = 'active'
+       and (sheet_id <> '' or exists (select 1 from staff_sheet c where c.game_id = g.id))`,
+  ).then((list) => list.forEach(({ id }, i) => scheduleSync(db, id, 5_000 + i * 2_000))).catch(() => {});
   const timer = setInterval(async () => {
     const list = await db.query(
       `select id from game g where kind = 'branch' and status = 'active'

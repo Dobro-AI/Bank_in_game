@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../src/db.js';
 import * as games from '../src/games.js';
-import { linkTelegram, playerOfTelegram, recipientsOf, validateInitData } from '../src/telegram.js';
+import { linkTelegram, openTeams, playerOfTelegram, recipientsOf, validateInitData } from '../src/telegram.js';
 import { playerTransfer } from '../src/transfers.js';
 
 const TOKEN = '123:test-token';
@@ -62,5 +62,28 @@ describe('Telegram-бот ведущих: привязка', () => {
     await expect(linkByCode(db, code, 888)).rejects.toThrow('устарела');
     expect(await staffOfTelegram(db, 777)).toMatchObject({ staffId: s.id, gameId: null, notify: true });
     expect(await isLinked(db, s.id)).toBe(true);
+  });
+});
+
+describe('Telegram-бот: выбор команды при входе', () => {
+  it('кнопки — команды игротехников по порядку, при двух открытых играх с названием игры', async () => {
+    const { ensureSuper } = await import('../src/bootstrap.js');
+    const { TEAMS, seedTeams } = await import('../src/seed-teams.js');
+    const db = await openDb();
+    await ensureSuper(db, 'diana', 'secret123');
+    const [diana] = await db.query("select id from staff where login = 'diana'");
+    for (const title of ['Развлечения', 'Логистика']) {
+      const root = await games.createRootGame(db, title);
+      await games.createRow(db, 'role', root.id, { title: 'Роль' });
+      const b = await games.createBranch(db, root.id, title, [diana.id]);
+      await games.launchBranch(db, b.id);
+      await db.query('update game set visible = $2 where id = $1', [b.id, title === 'Развлечения']);
+    }
+    await seedTeams(db);
+    expect((await openTeams(db)).map((t) => t.label)).toEqual(TEAMS.map((t) => t.label));
+    await db.query("update game set visible = true where kind = 'branch'");
+    const both = await openTeams(db);
+    expect(both).toHaveLength(TEAMS.length * 2);
+    expect(both[0].label).toBe(`${TEAMS[0].label} · Развлечения`);
   });
 });

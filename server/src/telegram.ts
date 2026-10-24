@@ -121,17 +121,11 @@ export function createBot(db: Db, token: string) {
   };
 
   async function startJoin(ctx: any) {
-    // One open game per team of game masters; the player says whose group they are in.
-    const list = await db.query(
-      `select g.id, g.title, g.parent_id, coalesce(nullif(g.team, ''), string_agg(s.name, ' и ' order by s.name), g.title) as team
-       from game g left join game_staff gs on gs.game_id = g.id left join staff s on s.id = gs.staff_id
-       where g.kind = 'branch' and g.status = 'active' and g.visible group by g.id order by g.parent_id, g.id`,
-    );
+    const list = await openTeams(db);
     if (!list.length) return ctx.reply('Сейчас нет открытых игр. Дождитесь, пока игротехник откроет игру.');
     if (list.length === 1) return showRoles(ctx, list[0].id, false);
-    const severalGames = new Set(list.map((g: any) => g.parent_id)).size > 1;
     const kb = new InlineKeyboard();
-    for (const g of list) kb.text(severalGames ? `${g.team} · ${g.title}` : g.team, `g:${g.id}`).row();
+    for (const g of list) kb.text(g.label, `g:${g.id}`).row();
     return ctx.reply('Добро пожаловать в игровой банк! У какого игротехника вы играете?', { reply_markup: kb });
   }
 
@@ -452,6 +446,20 @@ export async function configureBot(bot: Bot) {
   );
   const url = webAppUrl();
   await bot.api.setChatMenuButton({ menu_button: url ? { type: 'web_app', text: 'Банк', web_app: { url } } : { type: 'commands' } });
+}
+
+/**
+ * Open games, one per team of game masters (the admin's first), labelled the way a player picks:
+ * "Павел Зайцев и Степан Лушпей"; with several games open at once the game title is added.
+ */
+export async function openTeams(db: Db) {
+  const list = await db.query(
+    `select g.id, g.title, g.parent_id, coalesce(nullif(g.team, ''), string_agg(s.name, ' и ' order by s.name), g.title) as team
+     from game g left join game_staff gs on gs.game_id = g.id left join staff s on s.id = gs.staff_id
+     where g.kind = 'branch' and g.status = 'active' and g.visible group by g.id order by g.parent_id, g.id`,
+  );
+  const severalGames = new Set(list.map((g) => g.parent_id)).size > 1;
+  return list.map((g) => ({ id: g.id as number, label: (severalGames ? `${g.team} · ${g.title}` : g.team) as string }));
 }
 
 export async function startBot(db: Db) {
