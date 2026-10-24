@@ -17,9 +17,10 @@ export function AdminApp() {
   const staff = me.data.staff;
   if (!staff) return <div className="bank"><Login onDone={me.reload} /></div>;
 
+  // Everyone sees "Мои игры" the same way; the lead game master also has "Управление".
   const items: NavItem[] = [
-    { to: '/admin', label: staff.kind === 'super' ? 'Игры' : 'Мои игры', icon: <GridIcon />, end: true },
-    ...(staff.kind === 'super' ? [{ to: '/admin/staff', label: 'Игротехники', icon: <BadgeIcon /> }] : []),
+    { to: '/admin', label: 'Мои игры', icon: <GridIcon />, end: true },
+    ...(staff.kind === 'super' ? [{ to: '/admin/manage', label: 'Управление', icon: <BadgeIcon /> }] : []),
   ];
   const home = (page: ReactNode) => (
     <AdminShell staff={staff} title="Кабинет ведущего" subtitle="Игровой банк" items={items} onLogout={me.reload}>{page}</AdminShell>
@@ -27,8 +28,8 @@ export function AdminApp() {
 
   return (
     <Routes>
-      <Route index element={home(<Games staff={staff} />)} />
-      <Route path="staff" element={home(<StaffPage />)} />
+      <Route index element={home(<Games staff={staff} manage={false} />)} />
+      {staff.kind === 'super' && <Route path="manage" element={home(<><Games staff={staff} manage /><StaffPage /></>)} />}
       <Route path="g/:id/:section?" element={<GamePage staff={staff} onLogout={me.reload} />} />
     </Routes>
   );
@@ -62,13 +63,14 @@ function Login({ onDone }: { onDone: () => void }) {
 
 const STATUS: Record<string, string> = { draft: 'не запущена', active: 'идёт', finished: 'завершена' };
 
-function Games({ staff }: { staff: Staff }) {
+/** manage=false: my games, as every game master sees them; manage=true: all games for the lead game master. */
+function Games({ staff, manage }: { staff: Staff; manage: boolean }) {
   const nav = useNavigate();
   const games = useLoad(() => api<any[]>('/api/admin/games'), []);
   const [title, setTitle] = useState('');
   const [error, setError] = useState<string>();
   const roots = (games.data ?? []).filter((g) => g.kind === 'root');
-  const branches = (games.data ?? []).filter((g) => g.kind === 'branch');
+  const branches = (games.data ?? []).filter((g) => g.kind === 'branch' && (manage || g.mine));
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -95,23 +97,24 @@ function Games({ staff }: { staff: Staff }) {
         <div className="list-title">{b.title}</div>
         <div className="list-sub">Игротехники: {b.hosts || 'не назначены'}</div>
       </Link>
-      {b.status !== 'active' ? <span className="chip">{STATUS[b.status]}</span> : staff.kind === 'super' ? (
+      {b.status !== 'active' ? <span className="chip">{STATUS[b.status]}</span> : manage ? (
         <label className="switch">
           <input type="checkbox" checked={b.visible} onChange={(e) => setVisible(b.id, e.target.checked)} />
           <span>{b.visible ? 'Открыта игрокам' : 'Закрыта'}</span>
         </label>
       ) : <span className={b.visible ? 'chip accent' : 'chip'}>{b.visible ? 'открыта' : 'закрыта'}</span>}
-      {staff.kind === 'super' && <Link to={`/admin/g/${b.id}/staff`} className="btn small">Игротехники</Link>}
+      {manage && <Link to={`/admin/g/${b.id}/staff`} className="btn small">Игротехники</Link>}
     </div>
   );
 
   return (
     <>
-      <TelegramLink />
+      {!manage && <TelegramLink />}
       <ErrorText error={games.error} />
-      {staff.kind === 'super' ? (
+      {manage ? (
         <>
-          <h1>Игры</h1>
+          <h1>Управление играми</h1>
+          <p className="small muted">Какая игра открыта игрокам, игротехники каждой игры, новые игры и ответвления.</p>
           <form className="row section" onSubmit={create}>
             <input className="grow" style={{ width: 'auto' }} placeholder="Название новой игры" value={title} onChange={(e) => setTitle(e.target.value)} required />
             <button className="btn primary">Создать игру</button>
@@ -167,7 +170,7 @@ function StaffPage() {
           {list.data?.map((s) => (
             <div key={s.id} className="list-item">
               <div className="grow"><div className="list-title">{s.name}</div><div className="list-sub">{s.login}</div></div>
-              <span className="chip">{s.kind === 'super' ? 'Техник-игротехник' : 'игротехник'}</span>
+              <span className="chips"><span className="chip">игротехник</span>{s.kind === 'super' && <span className="chip accent">админ</span>}</span>
             </div>
           ))}
         </div>

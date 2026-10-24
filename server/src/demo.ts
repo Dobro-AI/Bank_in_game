@@ -24,6 +24,6 @@ await games.createRow(db, 'price_item', root.id, { title: 'Штраф за на�
 const branch = await games.createBranch(db, root.id, 'Город N', [host.id]);
 await games.launchBranch(db, branch.id);
 const codes = await db.query('select title, code from role where game_id = $1 order by title', [branch.id]);
-console.log('Демо готово. Техник-игротехник: super / super123, ведущий: host / host123');
+console.log('Демо готово. Админ: super / super123, игротехник: host / host123');
 console.table(codes);
 await db.close();

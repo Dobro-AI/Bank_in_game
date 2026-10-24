@@ -95,7 +95,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   }
   async function needSuper(req: FastifyRequest) {
     const s = await needStaff(req);
-    if (s.kind !== 'super') throw new AppError('Только для Техника-игротехника', 403);
+    if (s.kind !== 'super') throw new AppError('Только для админа', 403);
     return s;
   }
   async function needPlayer(req: FastifyRequest) {
@@ -115,7 +115,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     const [g] = await db.query('select * from game where id = $1', [gameId]);
     if (!g) throw new AppError('Игра не найдена', 404);
     if (!(await canSee(staff, gameId))) throw new AppError('Нет доступа к игре', 403);
-    if (mode === 'config' && g.kind === 'root' && staff.kind !== 'super') throw new AppError('Корневую игру меняет Техник-игротехник', 403);
+    if (mode === 'config' && g.kind === 'root' && staff.kind !== 'super') throw new AppError('Корневую игру меняет админ', 403);
     // Money and tacts belong to the host of the branch, not to the super host.
     if (mode === 'run') {
       if (g.kind !== 'branch') throw new AppError('Действие доступно только в ответвлении');
@@ -364,11 +364,12 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   app.get('/api/admin/games', async (req) => {
     const s = await needStaff(req);
     const rows = await db.query(
-      `select g.*, coalesce(string_agg(st.name, ', ' order by st.name), '') as hosts
+      `select g.*, coalesce(string_agg(st.name, ', ' order by st.name), '') as hosts,
+              exists (select 1 from game_staff m where m.game_id = g.id and m.staff_id = $1) as mine
        from game g left join game_staff gs on gs.game_id = g.id left join staff st on st.id = gs.staff_id
        ${s.kind === 'super' ? '' : 'where g.id in (select game_id from game_staff where staff_id = $1)'}
        group by g.id order by g.kind desc, g.title`,
-      s.kind === 'super' ? [] : [s.id],
+      [s.id],
     );
     return rows;
   });
@@ -512,7 +513,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     return createStaff(req.body);
   });
 
-  /** Техник-игротехник edits a staff account: name, login, password. */
+  /** The admin edits a staff account: name, login, password. */
   app.patch('/api/admin/staff/:sid', async (req) => {
     await needSuper(req);
     const id = Number((req.params as any).sid);
@@ -716,7 +717,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
       return reply.redirect(back);
     } catch (e: any) {
       console.error('google callback', e?.response?.data ?? e?.message ?? e);
-      return fail(e instanceof AppError ? (e.status === 401 ? 'Войдите в кабинет как Техник-игротехник и повторите вход через Google' : e.message) : 'Не удалось завершить вход через Google');
+      return fail(e instanceof AppError ? (e.status === 401 ? 'Войдите в кабинет как админ и повторите вход через Google' : e.message) : 'Не удалось завершить вход через Google');
     }
   });
 

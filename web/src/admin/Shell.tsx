@@ -36,7 +36,7 @@ export function AdminShell({ staff, title, subtitle, back, items, onLogout, chil
           </NavLink>
         ))}
         <div className="nav-footer">
-          <div className="bank-brand-sub">{staff.name}{staff.kind === 'super' ? ' · Техник-игротехник' : ''}</div>
+          <div className="bank-brand-sub">{staff.name} · {staff.kind === 'super' ? 'игротехник, админ' : 'игротехник'}</div>
           <button className="bank-nav-item" onClick={logout}><LogoutIcon /><span>Выйти</span></button>
         </div>
       </nav>
