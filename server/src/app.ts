@@ -95,7 +95,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
   }
   async function needSuper(req: FastifyRequest) {
     const s = await needStaff(req);
-    if (s.kind !== 'super') throw new AppError('Только для Супер-ведущего', 403);
+    if (s.kind !== 'super') throw new AppError('Только для Техника-игротехника', 403);
     return s;
   }
   async function needPlayer(req: FastifyRequest) {
@@ -115,7 +115,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     const [g] = await db.query('select * from game where id = $1', [gameId]);
     if (!g) throw new AppError('Игра не найдена', 404);
     if (!(await canSee(staff, gameId))) throw new AppError('Нет доступа к игре', 403);
-    if (mode === 'config' && g.kind === 'root' && staff.kind !== 'super') throw new AppError('Корневую игру меняет Супер-ведущий', 403);
+    if (mode === 'config' && g.kind === 'root' && staff.kind !== 'super') throw new AppError('Корневую игру меняет Техник-игротехник', 403);
     // Money and tacts belong to the host of the branch, not to the super host.
     if (mode === 'run') {
       if (g.kind !== 'branch') throw new AppError('Действие доступно только в ответвлении');
@@ -512,6 +512,31 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     return createStaff(req.body);
   });
 
+  /** Техник-игротехник edits a staff account: name, login, password. */
+  app.patch('/api/admin/staff/:sid', async (req) => {
+    await needSuper(req);
+    const id = Number((req.params as any).sid);
+    const b = req.body as any;
+    if (b.name !== undefined) {
+      const name = String(b.name).trim();
+      if (!name) throw new AppError('Укажите имя');
+      await db.query('update staff set name = $2 where id = $1', [id, name]);
+    }
+    if (b.login !== undefined) {
+      const login = String(b.login).trim();
+      const [taken] = await db.query('select 1 from staff where login = $1 and id <> $2', [login, id]);
+      if (!login || taken) throw new AppError('Такой логин уже есть');
+      await db.query('update staff set login = $2 where id = $1', [id, login]);
+    }
+    if (b.password !== undefined) {
+      if (String(b.password).length < 6) throw new AppError('Пароль — не короче 6 символов');
+      await db.query('update staff set password_hash = $2 where id = $1', [id, hashSecret(String(b.password))]);
+    }
+    const [s] = await db.query('select id, name, login, kind from staff where id = $1', [id]);
+    if (!s) throw new AppError('Не найдено', 404);
+    return s;
+  });
+
   /** Attach an existing host (super only) or create a chancellery login for this branch (its host). */
   app.post('/api/admin/games/:id/staff', async (req) => {
     const id = Number((req.params as any).id);
@@ -691,7 +716,7 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
       return reply.redirect(back);
     } catch (e: any) {
       console.error('google callback', e?.response?.data ?? e?.message ?? e);
-      return fail(e instanceof AppError ? (e.status === 401 ? 'Войдите в кабинет как Супер-ведущий и повторите вход через Google' : e.message) : 'Не удалось завершить вход через Google');
+      return fail(e instanceof AppError ? (e.status === 401 ? 'Войдите в кабинет как Техник-игротехник и повторите вход через Google' : e.message) : 'Не удалось завершить вход через Google');
     }
   });
 

@@ -84,7 +84,7 @@ async function gameNames(db: Db, gameId: number) {
     [gameId],
   );
   if (!g) throw new AppError('Игра не найдена', 404);
-  return { ...g, folderName: (g.root_title ?? g.title) as string, sheetName: (g.hosts ? `${g.title} — ${g.hosts}` : g.title) as string };
+  return { ...g, folderName: (g.root_title ?? g.title) as string, sheetName: g.title as string };
 }
 
 /**
@@ -117,7 +117,7 @@ export async function placeInFolder(db: Db, gameId: number) {
  */
 export async function createInFolder(db: Db, gameId: number) {
   const base = await getSetting(db, 'drive_folder_id');
-  if (!base) throw new AppError('Папка Google Диска для таблиц не задана (раздел «Google-таблица», делает Супер-ведущий)');
+  if (!base) throw new AppError('Папка Google Диска для таблиц не задана (раздел «Google-таблица», делает Техник-игротехник)');
   const g = await gameNames(db, gameId);
   if (g.sheet_id) throw new AppError('Таблица уже подключена');
   // Files are made as the connected Google user when there is one (their storage), else as the bank.

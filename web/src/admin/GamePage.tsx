@@ -27,7 +27,7 @@ const SECTIONS: Record<Section, { label: string; icon: ReactNode }> = {
   tacts: { label: 'Такты', icon: <FlagIcon /> },
   assistant: { label: 'Помощник', icon: <SparkIcon /> },
   config: { label: 'Настройки', icon: <GearIcon /> },
-  staff: { label: 'Ведущие', icon: <BadgeIcon /> },
+  staff: { label: 'Игротехники', icon: <BadgeIcon /> },
   branches: { label: 'Ответвления', icon: <BranchIcon /> },
 };
 
@@ -394,7 +394,7 @@ function StaffTab({ ctx, staff }: { ctx: Ctx; staff: Staff }) {
   return (
     <div className="grid-2">
       <section>
-        <h3>Ведущие и канцелярия этой игры</h3>
+        <h3>Игротехники этой игры</h3>
         <p className="small muted">Права у всех одинаковые</p>
         <div className="list">
           {ctx.d.staff.map((s) => (

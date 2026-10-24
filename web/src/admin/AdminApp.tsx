@@ -19,7 +19,7 @@ export function AdminApp() {
 
   const items: NavItem[] = [
     { to: '/admin', label: staff.kind === 'super' ? 'Игры' : 'Мои игры', icon: <GridIcon />, end: true },
-    ...(staff.kind === 'super' ? [{ to: '/admin/staff', label: 'Ведущие', icon: <BadgeIcon /> }] : []),
+    ...(staff.kind === 'super' ? [{ to: '/admin/staff', label: 'Игротехники', icon: <BadgeIcon /> }] : []),
   ];
   const home = (page: ReactNode) => (
     <AdminShell staff={staff} title="Кабинет ведущего" subtitle="Игровой банк" items={items} onLogout={me.reload}>{page}</AdminShell>
@@ -163,18 +163,18 @@ function StaffPage() {
   return (
     <div className="grid-2">
       <section>
-        <h1>Ведущие</h1>
+        <h1>Игротехники</h1>
         <div className="list">
           {list.data?.map((s) => (
             <div key={s.id} className="list-item">
               <div className="grow"><div className="list-title">{s.name}</div><div className="list-sub">{s.login}</div></div>
-              <span className="chip">{s.kind === 'super' ? 'Супер-ведущий' : 'ведущий'}</span>
+              <span className="chip">{s.kind === 'super' ? 'Техник-игротехник' : 'игротехник'}</span>
             </div>
           ))}
         </div>
       </section>
       <form className="panel stack" onSubmit={create}>
-        <h2>Новый ведущий</h2>
+        <h2>Новый игротехник</h2>
         <Field label="Имя"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></Field>
         <Field label="Логин"><input value={form.login} onChange={(e) => setForm({ ...form, login: e.target.value })} required /></Field>
         <Field label="Пароль" hint="Не короче 6 символов"><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required minLength={6} autoComplete="new-password" /></Field>

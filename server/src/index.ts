@@ -6,7 +6,7 @@ import { startHostBot } from './telegram-host.js';
 
 const db = await openDb({ url: process.env.DATABASE_URL, dataDir: process.env.PGLITE_DIR ?? './data' });
 if (await ensureSuper(db, process.env.SUPER_LOGIN, process.env.SUPER_PASSWORD)) {
-  console.log(`Создан Супер-ведущий: ${process.env.SUPER_LOGIN}`);
+  console.log(`Создан Техник-игротехник: ${process.env.SUPER_LOGIN}`);
 }
 const app = buildApp(db, { secureCookies: process.env.SECURE_COOKIES === '1' });
 const port = Number(process.env.PORT ?? 3000);
