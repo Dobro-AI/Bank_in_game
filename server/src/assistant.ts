@@ -530,6 +530,8 @@ export async function confirmProposal(db: Db, proposalId: number, staffId: numbe
   if (p.status !== 'pending') throw new AppError('Операция уже обработана');
   const i = p.payload;
   const gameId: number = p.game_id;
+  const [game] = await db.query('select kind from game where id = $1', [gameId]);
+  if (game?.kind !== 'branch') throw new AppError('Деньги и мощности меняются только в ответвлении игры');
   const key = `proposal:${p.id}`;
   const openTact = async () => {
     const [t] = await db.query('select id from tact where game_id = $1 and closed_at is null', [gameId]);

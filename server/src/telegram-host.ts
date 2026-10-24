@@ -376,7 +376,7 @@ export function createHostBot(db: Db, token: string) {
     const id = Number(ctx.match[2]);
     const [p] = await db.query(
       'select p.game_id, t.staff_id from assistant_proposal p join assistant_thread t on t.id = p.thread_id where p.id = $1', [id]);
-    if (!p || p.staff_id !== s.staffId || !(await canRun(db, s.staffId, p.game_id))) return ctx.answerCallbackQuery('Нет доступа');
+    if (!p || p.staff_id !== s.staffId || s.kind !== 'super') return ctx.answerCallbackQuery('Нет доступа');
     await ctx.answerCallbackQuery();
     try {
       if (ctx.match[1] === 'ok') {

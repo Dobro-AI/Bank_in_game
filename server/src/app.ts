@@ -934,7 +934,8 @@ export function buildApp(
       [pid],
     );
     if (!p) throw new AppError('Операция не найдена', 404);
-    const { staff } = await needGame(req, p.game_id, 'run');
+    // The assistant is the admin's: the admin carries out its proposals in any branch, attached or not.
+    const { staff } = await needAssistant(req, p.game_id);
     if (p.staff_id !== staff.id) throw new AppError('Это операция из чужого чата', 403);
     return { pid, staff };
   }

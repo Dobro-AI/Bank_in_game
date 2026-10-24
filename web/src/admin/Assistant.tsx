@@ -189,7 +189,7 @@ export function Assistant({ ctx }: { ctx: Ctx }) {
             {item.m.text}
           </div>
         ) : 'p' in item && item.p ? (
-          <ProposalCard key={item.key} p={item.p} canRun={ctx.d.can.run} onDecide={decide} />
+          <ProposalCard key={item.key} p={item.p} canRun={ctx.d.game.kind === 'branch'} onDecide={decide} />
         ) : null)}
         {busy && <div className="bubble assistant muted">Помощник думает…</div>}
         <div ref={bottom} />
