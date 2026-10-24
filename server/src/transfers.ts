@@ -98,8 +98,23 @@ export async function transfer(
       const [existing] = await db.query('select * from transfer where idempotency_key = $1', [key]);
       if (existing) return { transfer: existing, duplicate: true };
     }
+    if (e instanceof AppError) await recordRefusal(db, t, e.message).catch((err) => console.error('transfer attempt', err));
     throw e;
   }
+}
+
+/** A refused transfer is kept with its reason; listeners refresh the game's sheet. */
+async function recordRefusal(db: Db, t: TransferInput, reason: string) {
+  const ids = (await db.query('select id from account where id = any($1::int[]) and game_id = $2', [[t.fromAccountId, t.toAccountId], t.gameId]))
+    .map((a) => a.id);
+  const amount = Number(t.amount);
+  const [row] = await db.query(
+    `insert into transfer_attempt (game_id, tact_id, kind, from_account_id, to_account_id, amount, comment, initiator_player_id, initiator_staff_id, reason)
+     values ($1, (select id from tact where game_id = $1 and closed_at is null), $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
+    [t.gameId, t.kind, ids.includes(t.fromAccountId) ? t.fromAccountId : null, ids.includes(t.toAccountId) ? t.toAccountId : null,
+      Number.isSafeInteger(amount) ? amount : null, (t.comment ?? '').trim().slice(0, 500), t.initiatorPlayerId ?? null, t.initiatorStaffId ?? null, reason],
+  );
+  transferEvents.emit('refused', row);
 }
 
 /** Client keys are namespaced per initiator so one user can never replay another's key. */

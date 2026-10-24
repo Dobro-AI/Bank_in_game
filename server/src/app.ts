@@ -17,7 +17,7 @@ import * as sheets from './sheets.js';
 import * as telegram from './telegram.js';
 import * as hostBot from './telegram-host.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
-import { deleteTransfer, editTransfer, hostAdjust, payFixedPrice, playerTransfer, transfer } from './transfers.js';
+import { deleteTransfer, editTransfer, hostAdjust, payFixedPrice, playerTransfer, transfer, transferEvents } from './transfers.js';
 
 const STAFF_COOKIE = 'sid';
 const PLAYER_COOKIE = 'psid';
@@ -35,6 +35,10 @@ export function buildApp(
     bus.emit(`game:${gameId}`);
     sheets.scheduleSync(db, gameId);
   };
+  // A refused transfer changes nothing but the sheet's list of actions.
+  const onRefused = (row: any) => sheets.scheduleSync(db, row.game_id);
+  transferEvents.on('refused', onRefused);
+  app.addHook('onClose', async () => { transferEvents.off('refused', onRefused); });
   const codeLimiter = new AttemptLimiter(5, 60_000);
   const loginLimiter = new AttemptLimiter(10, 60_000);
 

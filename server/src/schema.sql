@@ -293,3 +293,21 @@ create index if not exists player_role_idx on player (role_id);
 
 -- Google sheet tab ids by title, so the cabinet can show each tab and the sync skips a lookup.
 alter table game add column if not exists sheet_gids jsonb not null default '{}';
+
+-- Transfers the bank refused (not enough money, no access to the account...), with the reason:
+-- the sheet lists them next to accepted transfers, like the organisers' "База".
+create table if not exists transfer_attempt (
+  id serial primary key,
+  game_id int not null references game(id) on delete cascade,
+  tact_id int references tact(id) on delete set null,
+  kind text not null,
+  from_account_id int references account(id) on delete set null,
+  to_account_id int references account(id) on delete set null,
+  amount bigint,
+  comment text not null default '',
+  initiator_player_id int references player(id) on delete set null,
+  initiator_staff_id int references staff(id) on delete set null,
+  reason text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists transfer_attempt_game_idx on transfer_attempt (game_id);
