@@ -111,7 +111,7 @@ export function createBot(db: Db, token: string) {
     db.query(
       `select a.id, a.kind, a.title, a.balance, m.member, m.pin_ok as "pinOk"
        from account a join account_member m on m.account_id = a.id where m.role_id = $1
-       order by (a.kind = 'individual') desc, a.title`,
+       order by (a.kind = 'legal') desc, a.title`,
       [roleId],
     );
   const spendable = async (roleId: number) => (await accountsOf(roleId)).filter((a) => a.member === 'owner' || a.pinOk);
@@ -233,7 +233,10 @@ export function createBot(db: Db, token: string) {
   async function chooseSource(ctx: any, p: any, prefix: 'tf' | 'pf') {
     const accs = await spendable(p.roleId);
     if (!accs.length) return ctx.reply('Нет счетов, с которых можно переводить.');
-    if (accs.length === 1) return prefix === 'tf' ? chooseRecipient(ctx, p, accs[0].id) : chooseItem(ctx, p, accs[0].id);
+    // By default money goes from the player's company: with one company there is nothing to ask.
+    const legal = accs.filter((a) => a.kind === 'legal');
+    const only = accs.length === 1 ? accs[0] : legal.length === 1 ? legal[0] : null;
+    if (only) return prefix === 'tf' ? chooseRecipient(ctx, p, only.id) : chooseItem(ctx, p, only.id);
     const kb = new InlineKeyboard();
     for (const a of accs) kb.text(`${a.title} — ${fmt(a.balance)}`, `${prefix}:${a.id}`).row();
     return ctx.reply('С какого счёта?', { reply_markup: kb });

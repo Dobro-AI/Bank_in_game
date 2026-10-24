@@ -30,7 +30,8 @@ function Bank({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const accounts = useLoad(() => api<Account[]>('/api/player/accounts'), []);
   const history = useLoad(() => api<Operation[]>('/api/player/history'), []);
   useLive(me.gameId, () => { accounts.reload(); history.reload(); });
-  const list = accounts.data ?? [];
+  // The company comes first: it opens by default and transfers go from it.
+  const list = [...(accounts.data ?? [])].sort((a, b) => Number(b.kind === 'legal') - Number(a.kind === 'legal'));
   const ops = history.data ?? [];
 
   return (

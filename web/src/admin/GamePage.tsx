@@ -1,13 +1,12 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, newKey, useLive, useLoad } from '../api';
-import { AdjustIcon, BadgeIcon, BoxIcon, BranchIcon, ChartIcon, FlagIcon, GearIcon, KeyIcon, SparkIcon, TableIcon, TransferIcon, UsersIcon } from '../icons';
+import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, useLive, useLoad } from '../api';
+import { BoxIcon, BranchIcon, FlagIcon, GearIcon, KeyIcon, SparkIcon, TableIcon, TransferIcon } from '../icons';
 import { Select } from '../Select';
 import { Confirm, Empty, ErrorText, Field, Money } from '../ui';
 import type { Staff } from './AdminApp';
 import { Assistant } from './Assistant';
-import { Calc } from './Calc';
-import { Capacity } from './Capacity';
+import { Capacities, Money as MoneyPage } from './Calc';
 import { Codes } from './Codes';
 import { Config } from './Config';
 import { AdminShell, NavItem } from './Shell';
@@ -19,21 +18,16 @@ export interface GameData {
   can: { config: boolean; run: boolean; super: boolean };
 }
 
-type Section = 'calc' | 'summary' | 'transfers' | 'people' | 'codes' | 'adjust' | 'capacity' | 'tacts' | 'sheet' | 'config' | 'staff' | 'branches' | 'assistant';
+type Section = 'money' | 'history' | 'capacity' | 'roles' | 'assistant' | 'rules' | 'settings' | 'branches';
 
 const SECTIONS: Record<Section, { label: string; icon: ReactNode }> = {
-  calc: { label: 'Расчётка', icon: <TableIcon /> },
-  summary: { label: 'Сводка', icon: <ChartIcon /> },
-  transfers: { label: 'Переводы', icon: <TransferIcon /> },
-  people: { label: 'Участники', icon: <UsersIcon /> },
-  codes: { label: 'Коды', icon: <KeyIcon /> },
-  adjust: { label: 'Начисления', icon: <AdjustIcon /> },
+  money: { label: 'Деньги', icon: <TableIcon /> },
+  history: { label: 'История переводов', icon: <TransferIcon /> },
   capacity: { label: 'Мощности', icon: <BoxIcon /> },
-  sheet: { label: 'Google-таблица', icon: <TableIcon /> },
-  tacts: { label: 'Такты', icon: <FlagIcon /> },
+  roles: { label: 'Роли', icon: <KeyIcon /> },
   assistant: { label: 'Помощник', icon: <SparkIcon /> },
-  config: { label: 'Настройки', icon: <GearIcon /> },
-  staff: { label: 'Игротехники', icon: <BadgeIcon /> },
+  rules: { label: 'Правила игры', icon: <FlagIcon /> },
+  settings: { label: 'Настройки', icon: <GearIcon /> },
   branches: { label: 'Ответвления', icon: <BranchIcon /> },
 };
 
@@ -53,8 +47,8 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
   // The assistant runs on the admin's own Claude subscription.
   const assistant: Section[] = staff.kind === 'super' ? ['assistant'] : [];
   const sections: Section[] = isRoot
-    ? ['config', 'branches', ...assistant]
-    : ['calc', 'summary', 'transfers', 'capacity', 'people', 'codes', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'sheet', ...assistant, 'config', 'staff'];
+    ? ['rules', 'branches', ...assistant]
+    : ['money', 'history', 'capacity', 'roles', ...assistant, 'rules', 'settings'];
   const current = sections.includes(params.section as Section) ? (params.section as Section) : sections[0];
   const ctx = { id, d, accounts: accounts.data ?? [], tacts: tacts.data ?? [], tick, reload: () => { data.reload(); accounts.reload(); tacts.reload(); } };
   const items: NavItem[] = sections.map((k, i) => ({
@@ -74,22 +68,16 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
         {!isRoot && d.game.status === 'active' && <OpenTact tacts={ctx.tacts} />}
       </header>
       {!isRoot && d.game.status === 'draft' && <LaunchBanner ctx={ctx} />}
-      {current === 'summary' && <SheetView ctx={ctx} section="summary" tabs={['Сводка']}><Summary ctx={ctx} /></SheetView>}
-      {current === 'transfers' && <SheetView ctx={ctx} section="transfers" tabs={['Деньги', 'Переводы']}><Transfers ctx={ctx} /></SheetView>}
-      {current === 'calc' && <SheetView ctx={ctx} section="calc" tabs={['Деньги']} initial="bank"><Calc ctx={ctx} /></SheetView>}
-      {current === 'people' && <People ctx={ctx} />}
-      {current === 'codes' && <Codes ctx={ctx} />}
-      {current === 'adjust' && <Adjust ctx={ctx} />}
+      {current === 'money' && <SheetView ctx={ctx} section="money" tabs={['Деньги']} initial="bank"><MoneyPage ctx={ctx} /></SheetView>}
+      {current === 'history' && <SheetView ctx={ctx} section="history" tabs={['Переводы']} initial="bank"><Transfers ctx={ctx} /></SheetView>}
       {current === 'capacity' && (
-        // Served hours are entered in the bank's table, so it stays the default here.
-        <SheetView ctx={ctx} section="capacity" tabs={['Мощности', 'Выручка и OPEX', 'Журнал активов']} initial="bank"><Capacity ctx={ctx} /></SheetView>
+        <SheetView ctx={ctx} section="capacity" tabs={['Мощности', 'Выручка и OPEX', 'Журнал активов']} initial="bank"><Capacities ctx={ctx} /></SheetView>
       )}
-      {current === 'sheet' && <Sheet ctx={ctx} />}
-      {current === 'tacts' && <Tacts ctx={ctx} />}
-      {current === 'config' && <Config ctx={ctx} />}
-      {current === 'staff' && <StaffTab ctx={ctx} staff={staff} />}
-      {current === 'branches' && <Branches ctx={ctx} />}
+      {current === 'roles' && <Codes ctx={ctx} />}
       {current === 'assistant' && <Assistant ctx={ctx} />}
+      {current === 'rules' && <Config ctx={ctx} />}
+      {current === 'settings' && <><Sheet ctx={ctx} /><section className="section"><StaffTab ctx={ctx} staff={staff} /></section></>}
+      {current === 'branches' && <Branches ctx={ctx} />}
     </AdminShell>
   );
 }
@@ -159,84 +147,6 @@ function Filters({ ctx, f, set, noTactAll }: { ctx: Ctx; f: F; set: (f: F) => vo
       <a className="btn" href={`/api/admin/games/${ctx.id}/export.xlsx?${qs(f)}`}>Скачать Excel</a>
     </div>
   );
-}
-
-function SummaryTable({ ctx, f }: { ctx: Ctx; f: F }) {
-  const s = useLoad(() => api<any>(`/api/admin/games/${ctx.id}/summary?${qs(f)}`), [ctx.id, qs(f), ctx.tick]);
-  if (!s.data) return <ErrorText error={s.error} />;
-  if (!s.data.tact) return <Empty>Игра ещё не запущена</Empty>;
-  const rows = s.data.rows as any[];
-  const players = rows.filter((r) => r.kind !== 'host');
-  const sum = (k: string) => players.reduce((a, r) => a + r[k], 0);
-  // The open tact's ending balance can be typed in: the difference is credited or debited.
-  const editable = ctx.d.can.run && !s.data.tact.closed_at;
-  return (
-    <>
-      <p className="muted small">Такт {s.data.tact.number} · {s.data.tact.closed_at ? `завершён ${dateTime(s.data.tact.closed_at)}` : 'идёт, данные живые'}</p>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Счёт</th><th>Тип</th><th>Владелец</th><th>Совладельцы</th><th className="num">На начало</th><th className="num">Получено</th><th className="num">Отправлено</th><th className="num">На конец</th></tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.accountId}>
-                <td>{r.title}</td><td>{ACCOUNT_KIND[r.kind]}</td><td>{r.owner}</td><td>{r.coowners}</td>
-                <td className="num"><Money value={r.balanceStart} /></td><td className="num"><Money value={r.received} /></td>
-                <td className="num"><Money value={r.sent} /></td>
-                <td className="num">
-                  {editable && r.kind !== 'host'
-                    ? <BalanceInput key={`${r.accountId}:${r.balanceEnd}`} ctx={ctx} accountId={r.accountId} title={r.title} value={r.balanceEnd} onSaved={s.reload} />
-                    : <Money value={r.balanceEnd} />}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          {!f.role && !f.account && (
-            <tfoot>
-              <tr><td colSpan={4}>Итого у игроков</td><td className="num"><Money value={sum('balanceStart')} /></td>
-                <td className="num"><Money value={sum('received')} /></td><td className="num"><Money value={sum('sent')} /></td>
-                <td className="num"><Money value={sum('balanceEnd')} /></td></tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-      <h3 className="section">Сколько денег у каждого игрока</h3>
-      <p className="muted small">Сумма по счетам, где игрок владелец</p>
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>Игрок</th><th className="num">Всего</th></tr></thead>
-          <tbody>{s.data.totals.map((t: any) => <tr key={t.owner}><td>{t.owner}</td><td className="num"><Money value={t.total} /></td></tr>)}</tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-function BalanceInput({ ctx, accountId, title, value, onSaved }: { ctx: Ctx; accountId: number; title: string; value: number; onSaved: () => void }) {
-  const [v, setV] = useState(String(value));
-  const [error, setError] = useState<string>();
-  async function save() {
-    if (v === '' || v === '-' || Number(v) === value) { setV(String(value)); return; }
-    try {
-      await api(`/api/admin/games/${ctx.id}/balance`, { method: 'PUT', body: { accountId, balance: Number(v) } });
-      setError(undefined);
-      onSaved();
-    } catch (e: any) { setError(e.message); }
-  }
-  return (
-    <>
-      <input className="cell-input num-input" inputMode="numeric" value={v} aria-label={`На конец, ${title}`}
-        onChange={(e) => setV(e.target.value.replace(/[^\d-]/g, ''))} onBlur={save}
-        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
-      {error && <div className="tiny error">{error}</div>}
-    </>
-  );
-}
-
-function Summary({ ctx }: { ctx: Ctx }) {
-  const [f, setF] = useState<F>({});
-  return (<><Filters ctx={ctx} f={f} set={setF} noTactAll /><SummaryTable ctx={ctx} f={f} /></>);
 }
 
 function Transfers({ ctx }: { ctx: Ctx }) {
@@ -312,161 +222,6 @@ function TransferRow({ ctx, t, onSaved }: { ctx: Ctx; t: any; onSaved: () => voi
         )}
       </td>
     </tr>
-  );
-}
-
-function People({ ctx }: { ctx: Ctx }) {
-  const [error, setError] = useState<string>();
-  const [release, setRelease] = useState<any>();
-  const accountsOf = (roleId: number) => ctx.accounts.filter((a) => a.members.some((m: any) => m.roleId === roleId));
-  const act = async (fn: () => Promise<unknown>) => {
-    setError(undefined);
-    try { await fn(); ctx.reload(); } catch (e: any) { setError(e.message); }
-  };
-  return (
-    <>
-      <ErrorText error={error} />
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>Роль</th><th>Код</th><th>Игроки</th><th>Счета</th><th></th></tr></thead>
-          <tbody>
-            {ctx.d.roles.map((r) => (
-              <tr key={r.id}>
-                <td>{r.title}</td>
-                <td><span className="code">{r.code}</span></td>
-                <td>{r.players || <span className="muted">никто не вошёл</span>}</td>
-                <td>
-                  {accountsOf(r.id).map((a) => {
-                    const m = a.members.find((x: any) => x.roleId === r.id);
-                    return (
-                      <div key={a.id} className="row" style={{ gap: 4 }}>
-                        <span>{a.title}</span>
-                        <span className="chip">{m.member === 'owner' ? 'владелец' : m.pinOk ? 'совладелец' : 'совладелец, без PIN'}</span>
-                        <Money value={a.balance} />
-                      </div>
-                    );
-                  })}
-                </td>
-                <td>
-                  {ctx.d.can.config && (
-                    <div className="row">
-                      <button className="btn small" onClick={() => act(() => api(`/api/admin/roles/${r.id}/code`, { body: {} }))}>Новый код</button>
-                      {r.player_count > 0 && <button className="btn small danger" onClick={() => setRelease(r)}>Сбросить</button>}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {ctx.d.roles.length === 0 && <Empty>Ролей нет — добавьте их в настройках</Empty>}
-      </div>
-      {release && (
-        <Confirm title="Отключить всех игроков роли?" confirmText="Сбросить" onCancel={() => setRelease(undefined)}
-          onConfirm={() => { act(() => api(`/api/admin/roles/${release.id}/release`, { body: {} })); setRelease(undefined); }}>
-          {release.players} {release.player_count > 1 ? 'потеряют' : 'потеряет'} доступ к роли «{release.title}». Счета роли сохранятся: войти снова можно по коду роли.
-        </Confirm>
-      )}
-    </>
-  );
-}
-
-function Adjust({ ctx }: { ctx: Ctx }) {
-  const [accountId, setAccount] = useState<number>();
-  const [direction, setDirection] = useState<'credit' | 'debit'>('credit');
-  const [amount, setAmount] = useState('');
-  const [comment, setComment] = useState('');
-  const [key, setKey] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const [done, setDone] = useState<string>();
-  const players = ctx.accounts.filter((a) => a.kind !== 'host');
-  const acc = players.find((a) => a.id === accountId);
-  const n = Number(amount);
-
-  async function submit() {
-    setBusy(true);
-    setError(undefined);
-    try {
-      await api(`/api/admin/games/${ctx.id}/adjust`, { body: { accountId, direction, amount: n, comment, idempotencyKey: key } });
-      setDone(`${direction === 'credit' ? 'Начислено' : 'Списано'} ${n} — ${acc?.title}`);
-      setKey(undefined);
-      setAmount('');
-      setComment('');
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
-  }
-
-  return (
-    <form className="panel stack" style={{ maxWidth: 480 }} onSubmit={(e: FormEvent) => { e.preventDefault(); setError(undefined); setKey(newKey()); }}>
-      <div className="chips" role="radiogroup" aria-label="Операция">
-        <button type="button" className="chip-toggle" aria-pressed={direction === 'credit'} onClick={() => setDirection('credit')}>Начисление</button>
-        <button type="button" className="chip-toggle" aria-pressed={direction === 'debit'} onClick={() => setDirection('debit')}>Списание</button>
-      </div>
-      <Field label="Счёт">
-        <select value={accountId ?? ''} onChange={(e) => setAccount(Number(e.target.value))} required>
-          <option value="">Выберите…</option>
-          <optgroup label="Юрлица">{players.filter((a) => a.kind === 'legal').map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}</optgroup>
-          <optgroup label="Физлица">{players.filter((a) => a.kind === 'individual').map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}</optgroup>
-        </select>
-      </Field>
-      <Field label="Сумма"><input value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))} inputMode="numeric" required /></Field>
-      <Field label="Комментарий"><textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={500} /></Field>
-      {direction === 'debit' && <p className="small muted">Списание может увести счёт в минус.</p>}
-      {done && <p className="ok small">{done}</p>}
-      <button className="btn primary" disabled={!accountId || !(n > 0)}>Далее</button>
-      {key && (
-        <Confirm title={direction === 'credit' ? 'Начислить?' : 'Списать?'} busy={busy} error={error} onCancel={() => setKey(undefined)} onConfirm={submit}>
-          <div className="summary-line"><span className="muted">Счёт</span><span>{acc?.title}</span></div>
-          <div className="summary-line"><span className="muted">Сейчас</span><Money value={acc?.balance ?? 0} /></div>
-          <div className="summary-line"><span className="muted">{direction === 'credit' ? 'Начисление' : 'Списание'}</span><Money value={direction === 'credit' ? n : -n} signed /></div>
-        </Confirm>
-      )}
-    </form>
-  );
-}
-
-function Tacts({ ctx }: { ctx: Ctx }) {
-  const [confirm, setConfirm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const [view, setView] = useState<number>();
-  const open = ctx.tacts.find((t) => !t.closed_at);
-  const closed = ctx.tacts.filter((t) => t.closed_at).reverse();
-  const shown = view ?? closed[0]?.id;
-
-  return (
-    <>
-      {open && ctx.d.can.run && (
-        <div className="banner row between">
-          <span>Идёт такт {open.number} с {dateTime(open.started_at)}</span>
-          <button className="btn primary" onClick={() => setConfirm(true)}>Завершить такт {open.number}</button>
-        </div>
-      )}
-      {confirm && (
-        <Confirm title={`Завершить такт ${open?.number}?`} busy={busy} error={error} confirmText="Завершить" onCancel={() => setConfirm(false)}
-          onConfirm={async () => {
-            setBusy(true);
-            try {
-              const r = await api(`/api/admin/games/${ctx.id}/close-tact`, { body: {} });
-              setConfirm(false);
-              setView(r.closed.id);
-              ctx.reload();
-            } catch (e: any) { setError(e.message); } finally { setBusy(false); }
-          }}>
-          Балансы зафиксируются в слепке, сразу начнётся такт {(open?.number ?? 0) + 1}. Переводы не останавливаются.
-        </Confirm>
-      )}
-      {closed.length === 0 ? <Empty>Завершённых тактов пока нет</Empty> : (
-        <>
-          <div className="chips" style={{ marginBottom: 16 }}>
-            {closed.map((t) => (
-              <button key={t.id} className="chip-toggle" aria-pressed={shown === t.id} onClick={() => setView(t.id)}>Слепок такта {t.number}</button>
-            ))}
-          </div>
-          {shown && <SummaryTable ctx={ctx} f={{ tact: shown }} />}
-        </>
-      )}
-    </>
   );
 }
 

@@ -1,48 +1,68 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { api, money, newKey, useLoad } from '../api';
 import { Select } from '../Select';
-import { Confirm, Empty, ErrorText, Field, Money } from '../ui';
+import { Confirm, Empty, ErrorText, Field, Money as Amount } from '../ui';
+import { Ledger, OutputInput } from './Capacity';
 import type { Ctx } from './GamePage';
 
 const EARNED = '__earned';
 
-interface AssetCell { code: string; title: string; end: number; capacity: number; capacityUnit: string }
+interface AssetCell { code: string; title: string; unit: string; start: number; change: number; end: number; capacity: number; capacityUnit: string; output: number }
 interface CapRow {
   accountId: number; title: string; kind: string; balance: number; owner: string; assets: AssetCell[];
-  earned: number; revenue: number; opex: number; opexText: string; postedRevenue: number | null; postedOpex: number | null;
+  earned: number; revenue: number; opex: number; result: number; revenueText: string; opexText: string;
+  postedRevenue: number | null; postedOpex: number | null;
 }
 interface SumRow { accountId: number; balanceStart: number; received: number; sent: number; balanceEnd: number }
+interface CapTable { tact: any; types: any[]; rows: CapRow[] }
 
-/**
- * The organisers' "Account" sheet as one screen: per company and tact — money at the start, what
- * came in and went out, assets with capacity and expense formulas, earnings typed by the host,
- * and the balance at the end. Ending the tact credits earnings and subtracts expenses.
- */
-export function Calc({ ctx }: { ctx: Ctx }) {
+// Legal entities first: in these games each role plays a company.
+const companies = (rows: CapRow[]) =>
+  [...rows].sort((a, b) => (a.kind === b.kind ? a.title.localeCompare(b.title, 'ru') : a.kind === 'legal' ? -1 : 1));
+/** What the balance becomes once the tact ends: unposted earnings credited, unposted expenses subtracted. */
+const afterTact = (r: CapRow) => r.balance + (r.revenue - (r.postedRevenue ?? 0)) - (r.opex - (r.postedOpex ?? 0));
+
+/** One tact picker for both sections: the current tact or a finished one. */
+function useTact(ctx: Ctx) {
   const [tactId, setTactId] = useState<number>();
   const q = tactId ? `?tact=${tactId}` : '';
-  const cap = useLoad(() => api<{ tact: any; types: any[]; rows: CapRow[] }>(`/api/admin/games/${ctx.id}/capacity${q}`), [ctx.id, q, ctx.tick]);
+  const cap = useLoad(() => api<CapTable>(`/api/admin/games/${ctx.id}/capacity${q}`), [ctx.id, q, ctx.tick]);
+  const picker = (
+    <div style={{ minWidth: 200 }}>
+      <Select value={tactId ? String(tactId) : ''} onChange={(v) => setTactId(Number(v) || undefined)} ariaLabel="Такт"
+        options={[{ value: '', label: `Текущий такт ${ctx.tacts.find((t) => !t.closed_at)?.number ?? ''}` },
+          ...ctx.tacts.filter((t) => t.closed_at).map((t) => ({ value: String(t.id), label: `Такт ${t.number}`, sub: 'завершён' }))]} />
+    </div>
+  );
+  return { q, cap, picker };
+}
+
+/**
+ * "Деньги": per company and tact — money at the start, what came in and went out, the balance (typed
+ * in to correct it), and what it becomes when the tact ends. Money moves from here; the tact ends here.
+ */
+export function Money({ ctx }: { ctx: Ctx }) {
+  const { q, cap, picker } = useTact(ctx);
   const sum = useLoad(() => api<{ rows: SumRow[] }>(`/api/admin/games/${ctx.id}/summary${q}`), [ctx.id, q, ctx.tick]);
   const [moneyFor, setMoneyFor] = useState<CapRow>();
   const [finish, setFinish] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
-  if (ctx.d.game.status === 'draft') return <Empty>Расчётка начнётся после запуска игры</Empty>;
+  if (ctx.d.game.status === 'draft') return <Empty>Деньги появятся после запуска игры</Empty>;
   if (!cap.data || !sum.data) return <ErrorText error={cap.error || sum.error} />;
   const tact = cap.data.tact;
   const open = !tact.closed_at;
   const editable = open && ctx.d.can.run;
   const bySum = new Map(sum.data.rows.map((r) => [r.accountId, r]));
-  // Legal entities first: in these games each role plays a company.
-  const rows = [...cap.data.rows].sort((a, b) => (a.kind === b.kind ? a.title.localeCompare(b.title, 'ru') : a.kind === 'legal' ? -1 : 1));
-  const pendingEnd = (r: CapRow) => r.balance + (r.revenue - (r.postedRevenue ?? 0)) - (r.opex - (r.postedOpex ?? 0));
+  const rows = companies(cap.data.rows);
+  const pending = rows.reduce((t, r) => ({ earned: t.earned + r.revenue - (r.postedRevenue ?? 0), opex: t.opex + r.opex - (r.postedOpex ?? 0) }), { earned: 0, opex: 0 });
   const totals = rows.reduce((t, r) => {
     const s = bySum.get(r.accountId);
-    t.start += s?.balanceStart ?? 0; t.in += s?.received ?? 0; t.out += s?.sent ?? 0;
-    t.earned += r.earned; t.opex += r.opex; t.end += open ? pendingEnd(r) : s?.balanceEnd ?? 0;
-    return t;
-  }, { start: 0, in: 0, out: 0, earned: 0, opex: 0, end: 0 });
+    return { start: t.start + (s?.balanceStart ?? 0), in: t.in + (s?.received ?? 0), out: t.out + (s?.sent ?? 0),
+      end: t.end + (s?.balanceEnd ?? 0), after: t.after + afterTact(r) };
+  }, { start: 0, in: 0, out: 0, end: 0, after: 0 });
+  const reload = () => { cap.reload(); sum.reload(); };
 
   async function doFinish() {
     setBusy(true);
@@ -58,15 +78,11 @@ export function Calc({ ctx }: { ctx: Ctx }) {
     <>
       <div className="row between" style={{ marginBottom: 12 }}>
         <div className="row">
-          <div style={{ minWidth: 200 }}>
-            <Select value={tactId ? String(tactId) : ''} onChange={(v) => setTactId(Number(v) || undefined)} ariaLabel="Такт"
-              options={[{ value: '', label: `Текущий такт ${ctx.tacts.find((t) => !t.closed_at)?.number ?? ''}` },
-                ...ctx.tacts.filter((t) => t.closed_at).map((t) => ({ value: String(t.id), label: `Такт ${t.number}`, sub: 'завершён' }))]} />
-          </div>
+          {picker}
           {editable && <button className="btn primary" onClick={() => setFinish(true)}>Завершить такт {tact.number}</button>}
         </div>
         <span className="small muted">
-          {open ? 'При завершении такта заработок начислится, а расходы спишутся с каждой компании сами.' : 'Такт завершён: суммы зафиксированы.'}
+          {open ? 'При завершении такта заработок начислится, а расходы на мощности спишутся с каждой компании сами.' : 'Такт завершён: суммы зафиксированы.'}
         </span>
       </div>
       <ErrorText error={error} />
@@ -76,55 +92,147 @@ export function Calc({ ctx }: { ctx: Ctx }) {
           <thead>
             <tr>
               <th>Компания</th><th className="num">На начало</th><th className="num">Пришло</th><th className="num">Ушло</th>
-              <th>Мощности</th><th className="num">Заработали</th><th className="num">Расходы</th><th className="num">На конец</th><th></th>
+              <th className="num">Остаток</th>{open && <th className="num">После такта</th>}<th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => {
               const s = bySum.get(r.accountId);
+              const end = s?.balanceEnd ?? 0;
               return (
                 <tr key={r.accountId}>
                   <td><strong>{r.title}</strong><div className="tiny muted">{r.owner}</div></td>
-                  <td className="num"><Money value={s?.balanceStart ?? 0} /></td>
-                  <td className="num">{s?.received ? <span className="in"><Money value={s.received} signed /></span> : '—'}</td>
-                  <td className="num">{s?.sent ? <Money value={-s.sent} signed /> : '—'}</td>
-                  <td><Assets ctx={ctx} row={r} types={cap.data!.types} editable={editable} onChanged={cap.reload} /></td>
+                  <td className="num"><Amount value={s?.balanceStart ?? 0} /></td>
+                  <td className="num">{s?.received ? <span className="in"><Amount value={s.received} signed /></span> : '—'}</td>
+                  <td className="num">{s?.sent ? <Amount value={-s.sent} signed /> : '—'}</td>
                   <td className="num">
                     {editable
-                      ? <Earned ctx={ctx} tactId={tact.id} row={r} onSaved={cap.reload} />
-                      : <Money value={r.earned} />}
-                    {r.revenue !== r.earned && <div className="tiny muted">+ с мощностей {money(r.revenue - r.earned)}</div>}
+                      ? <BalanceInput key={`${r.accountId}:${end}`} ctx={ctx} accountId={r.accountId} title={r.title} value={end} onSaved={reload} />
+                      : <strong><Amount value={end} /></strong>}
                   </td>
-                  <td className="num">
-                    {r.opex ? <Money value={-r.opex} signed /> : '—'}
-                    {r.opexText && <div className="tiny muted formula">{r.opexText}</div>}
-                  </td>
-                  <td className="num"><strong><Money value={open ? pendingEnd(r) : s?.balanceEnd ?? 0} /></strong>
-                    {open && (r.postedRevenue !== null || r.postedOpex !== null) && <div className="tiny muted">проведено</div>}
-                  </td>
-                  <td>{ctx.d.can.run && <button className="btn small" onClick={() => setMoneyFor(r)}>Деньги</button>}</td>
+                  {open && (
+                    <td className="num">
+                      <Amount value={afterTact(r)} />
+                      {afterTact(r) !== r.balance && (
+                        <div className="tiny muted">
+                          {r.revenue - (r.postedRevenue ?? 0) ? `+${money(r.revenue - (r.postedRevenue ?? 0))} заработок` : ''}
+                          {r.opex - (r.postedOpex ?? 0) ? ` −${money(r.opex - (r.postedOpex ?? 0))} расходы` : ''}
+                        </div>
+                      )}
+                    </td>
+                  )}
+                  <td>{ctx.d.can.run && open && <button className="btn small" onClick={() => setMoneyFor(r)}>Деньги</button>}</td>
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
             <tr>
-              <td>Итого</td><td className="num"><Money value={totals.start} /></td><td className="num"><Money value={totals.in} /></td>
-              <td className="num"><Money value={-totals.out} signed /></td><td></td><td className="num"><Money value={totals.earned} /></td>
-              <td className="num"><Money value={-totals.opex} signed /></td><td className="num"><Money value={totals.end} /></td><td></td>
+              <td>Сумма у всех</td><td className="num"><Amount value={totals.start} /></td><td className="num"><Amount value={totals.in} /></td>
+              <td className="num"><Amount value={-totals.out} signed /></td><td className="num"><Amount value={totals.end} /></td>
+              {open && <td className="num"><Amount value={totals.after} /></td>}<td></td>
             </tr>
           </tfoot>
         </table>
       </div>
 
-      {moneyFor && <MoneyDialog ctx={ctx} row={moneyFor} onClose={() => setMoneyFor(undefined)} onDone={() => { setMoneyFor(undefined); ctx.reload(); cap.reload(); sum.reload(); }} />}
+      {moneyFor && <MoneyDialog ctx={ctx} row={moneyFor} onClose={() => setMoneyFor(undefined)} onDone={() => { setMoneyFor(undefined); ctx.reload(); reload(); }} />}
       {finish && (
         <Confirm title={`Завершить такт ${tact.number}?`} busy={busy} error={error} confirmText="Завершить" onCancel={() => setFinish(false)} onConfirm={doFinish}>
-          <div className="summary-line"><span className="muted">Начислится заработок</span><Money value={totals.earned} /></div>
-          <div className="summary-line"><span className="muted">Спишутся расходы</span><Money value={-totals.opex} signed /></div>
-          <p className="small muted">Балансы зафиксируются, начнётся такт {tact.number + 1}. Уже проведённое не повторится.</p>
+          <div className="summary-line"><span className="muted">Начислится заработок</span><Amount value={pending.earned} /></div>
+          <div className="summary-line"><span className="muted">Спишутся расходы</span><Amount value={-pending.opex} signed /></div>
+          <p className="small muted">Заработок и расходы — в разделе «Мощности». Балансы зафиксируются, начнётся такт {tact.number + 1}.</p>
         </Confirm>
       )}
+    </>
+  );
+}
+
+/**
+ * "Мощности": what each company has this tact (editable), hours or trips served, money earned typed in by
+ * the host, expenses by formula and the tact's result. Any finished tact can be looked at.
+ */
+export function Capacities({ ctx }: { ctx: Ctx }) {
+  const { cap, picker } = useTact(ctx);
+  const [journal, setJournal] = useState<number>();
+
+  if (ctx.d.game.status === 'draft') return <Empty>Мощности появятся после запуска игры</Empty>;
+  if (!cap.data) return <ErrorText error={cap.error} />;
+  const tact = cap.data.tact;
+  const editable = !tact.closed_at && ctx.d.can.run;
+  const rows = companies(cap.data.rows);
+  const totals = rows.reduce((t, r) => ({ earned: t.earned + r.revenue, opex: t.opex + r.opex }), { earned: 0, opex: 0 });
+
+  return (
+    <>
+      <div className="row between" style={{ marginBottom: 12 }}>
+        {picker}
+        <span className="small muted">
+          {editable ? 'Заработок начислится, а расходы спишутся, когда такт завершат в разделе «Деньги».' : 'Такт завершён: суммы зафиксированы.'}
+        </span>
+      </div>
+      <div className="table-wrap">
+        <table className="calc">
+          <thead>
+            <tr>
+              <th>Компания</th><th>Мощности</th><th>Обслужено</th><th className="num">Заработали</th>
+              <th className="num">Расходы</th><th className="num">Итог такта</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.accountId}>
+                <td><strong>{r.title}</strong><div className="tiny muted">{r.owner}</div></td>
+                <td><Assets ctx={ctx} row={r} types={cap.data!.types} editable={editable} onChanged={cap.reload} /></td>
+                <td>
+                  {r.assets.filter((a) => a.capacityUnit && a.end + a.output > 0).map((a) => (
+                    <OutputInput key={a.code} ctx={ctx} tactId={tact.id} accountId={r.accountId} cell={a} editable={editable} onSaved={cap.reload} />
+                  ))}
+                </td>
+                <td className="num">
+                  {editable ? <Earned ctx={ctx} tactId={tact.id} row={r} onSaved={cap.reload} /> : <Amount value={r.earned} />}
+                  {r.revenue !== r.earned && <div className="tiny muted formula">+ с мощностей {money(r.revenue - r.earned)}</div>}
+                </td>
+                <td className="num">
+                  {r.opex ? <Amount value={-r.opex} signed /> : '—'}
+                  {r.opexText && <div className="tiny muted formula">{r.opexText}</div>}
+                </td>
+                <td className="num"><strong><Amount value={r.result} signed /></strong></td>
+                <td><button className="btn small" onClick={() => setJournal(journal === r.accountId ? undefined : r.accountId)}>{journal === r.accountId ? 'Все' : 'Журнал'}</button></td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Итого</td><td></td><td></td><td className="num"><Amount value={totals.earned} /></td>
+              <td className="num"><Amount value={-totals.opex} signed /></td><td className="num"><Amount value={totals.earned - totals.opex} signed /></td><td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <Ledger ctx={ctx} accountId={journal} onClose={() => setJournal(undefined)} onChanged={cap.reload} />
+    </>
+  );
+}
+
+/** The balance typed in directly: the difference is credited or debited by the host. */
+function BalanceInput({ ctx, accountId, title, value, onSaved }: { ctx: Ctx; accountId: number; title: string; value: number; onSaved: () => void }) {
+  const [v, setV] = useState(String(value));
+  const [error, setError] = useState<string>();
+  async function save() {
+    if (v === '' || v === '-' || Number(v) === value) { setV(String(value)); return; }
+    try {
+      await api(`/api/admin/games/${ctx.id}/balance`, { method: 'PUT', body: { accountId, balance: Number(v) } });
+      setError(undefined);
+      onSaved();
+    } catch (e: any) { setError(e.message); }
+  }
+  return (
+    <>
+      <input className="cell-input num-input" inputMode="numeric" value={v} aria-label={`Остаток, ${title}`}
+        onChange={(e) => setV(e.target.value.replace(/[^\d-]/g, ''))} onBlur={save}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+      {error && <div className="tiny error">{error}</div>}
     </>
   );
 }
@@ -160,7 +268,7 @@ function Assets({ ctx, row, types, editable, onChanged }: { ctx: Ctx; row: CapRo
   async function change(code: string, from: number, to: number) {
     if (to === from) return;
     try {
-      await api(`/api/admin/games/${ctx.id}/ledger`, { body: { accountId: row.accountId, code, delta: to - from, comment: 'Изменено в расчётке' } });
+      await api(`/api/admin/games/${ctx.id}/ledger`, { body: { accountId: row.accountId, code, delta: to - from, comment: 'Изменено в мощностях' } });
       setError(undefined);
       onChanged();
     } catch (e: any) { setError(e.message); }

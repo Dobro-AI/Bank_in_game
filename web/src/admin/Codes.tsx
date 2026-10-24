@@ -65,6 +65,7 @@ export function Codes({ ctx }: { ctx: Ctx }) {
 function CodeRow({ ctx, role, editable }: { ctx: Ctx; role: any; editable: boolean }) {
   const [code, setCode] = useState(role.code ?? '');
   const [error, setError] = useState<string>();
+  const [release, setRelease] = useState(false);
   useEffect(() => setCode(role.code ?? ''), [role.code]);
 
   const save = async (value?: string) => {
@@ -92,7 +93,16 @@ function CodeRow({ ctx, role, editable }: { ctx: Ctx; role: any; editable: boole
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <button className="btn small primary" disabled={code.length !== 4 || code === role.code} onClick={() => save(code)}>Сохранить</button>
             <button className="btn small" onClick={() => save()}>Случайный</button>
+            {role.player_count > 0 && <button className="btn small danger" onClick={() => setRelease(true)}>Отключить игроков</button>}
           </div>
+        )}
+        {release && (
+          <Confirm title="Отключить всех игроков роли?" confirmText="Отключить" error={error} onCancel={() => setRelease(false)}
+            onConfirm={async () => {
+              try { await api(`/api/admin/roles/${role.id}/release`, { body: {} }); setRelease(false); ctx.reload(); } catch (e: any) { setError(e.message); }
+            }}>
+            {role.players} — потеряют доступ к роли «{role.title}». Счета роли сохранятся: войти снова можно по коду.
+          </Confirm>
         )}
       </td>
     </tr>
