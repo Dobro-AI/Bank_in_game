@@ -199,23 +199,37 @@ a.settings-row:hover, button.settings-row:hover { background: #fcfcfc; }
 .page-head h1 { margin: 0 0 4px; font-size: 24px; }
 .page-head p { margin: 0; }
 
+/* Phones: the cabinet's sections are a bottom bar like the players' app, scrolled sideways when they don't fit. */
 @media (max-width: 899px) {
-  .admin .bank-nav {
-    position: sticky; top: 0; bottom: auto; flex-direction: row; overflow-x: auto; gap: 4px; padding: 8px 12px;
-    border-top: none; border-bottom: 1px solid var(--line); scrollbar-width: none;
-  }
+  .admin .bank-nav { overflow-x: auto; scrollbar-width: none; padding: 0 4px env(safe-area-inset-bottom); }
   .admin .bank-nav::-webkit-scrollbar { display: none; }
-  .admin .bank .bank-nav-item, .admin .bank-nav-item {
-    flex: none; flex-direction: row; gap: 8px; height: 44px; padding: 0 12px; border-radius: 999px; font-size: 14px; width: auto;
-  }
-  .admin .bank-nav-item.active { background: var(--bg); }
+  .admin .bank .bank-nav-item, .admin .bank-nav-item { flex: none; min-width: 72px; width: auto; padding: 0 8px; font-size: 11px; }
+  .admin .bank-nav-item span { white-space: nowrap; }
   .admin .nav-footer { margin: 0; padding: 0; border: none; flex-direction: row; }
-  .admin .nav-footer .bank-brand-sub { display: none; }
-  .admin .bank-main { padding-bottom: 48px; }
+  .admin .nav-footer .bank-brand-sub, .admin .nav-collapse { display: none; }
+  .admin .nav-sep { flex: none; width: 1px; margin: 14px 2px; background: var(--line); }
 }
 @media (min-width: 900px) {
-  .admin .bank-nav { overflow-y: auto; }
+  .admin .bank-nav { overflow-y: auto; position: sticky; }
   .back-link { color: var(--muted) !important; margin-bottom: 8px; }
+  /* Groups: everyday sections, a line, the assistant set apart, then quieter settings. */
+  .admin .nav-sep { height: 1px; margin: 8px 12px; background: var(--line); }
+  .admin .bank-nav-item.nav-assistant { color: var(--cta-hover); background: var(--cta-soft); font-weight: 600; }
+  .admin .bank-nav-item.nav-assistant.active { background: var(--cta); color: var(--cta-text); }
+  .admin .bank-nav-item.nav-minor { height: 40px; font-size: 14px; color: var(--muted); }
+  .admin .bank-nav-item.nav-minor.active { color: var(--text); }
+  .admin .nav-collapse {
+    position: absolute; top: 20px; right: 8px; width: 32px; height: 32px; display: grid; place-items: center;
+    border: none; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; transform: rotate(180deg);
+  }
+  .admin .nav-collapse:hover { background: var(--bg); color: var(--text); }
+  .admin .bank-brand { padding-right: 32px; }
+  /* Folded: icons only. */
+  .bank-shell.admin.nav-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
+  .nav-collapsed .bank-nav { padding: 64px 12px 24px; }
+  .nav-collapsed .nav-collapse { transform: none; right: 20px; }
+  .nav-collapsed .bank-brand, .nav-collapsed .bank-nav-item span, .nav-collapsed .nav-footer .bank-brand-sub { display: none; }
+  .nav-collapsed .bank-nav-item { justify-content: center; padding: 0; }
 }
 
 /* Existing host widgets restyled to the bank look. */
@@ -306,8 +320,6 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .tact-timer.over { background: #b91c1c; }
 @media (max-width: 760px) {
   .tact-timer { right: 12px; }
-  /* The cabinet's menu is a sticky strip on top here: the timer sits just below it. */
-  .bank-shell.admin .tact-timer { top: 72px; }
 }
 
 .tact-now { gap: 16px; display: flex; flex-direction: column; }
@@ -346,3 +358,31 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 }
 .slider::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 2px solid var(--cta); }
 .slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--cta-soft); }
+
+.copy-row { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line, #e5e7eb); }
+.copy-row > .tiny { grid-column: 2 / -1; }
+@media (max-width: 760px) { .copy-row { grid-template-columns: 1fr; } .copy-row > .tiny { grid-column: auto; } }
+
+/* "Итоги тактов": a leaderboard of balances after each tact, readable from across the room. */
+.results { display: flex; flex-direction: column; gap: 8px; overflow-x: auto; }
+.results-head, .results-row {
+  display: grid; align-items: center; gap: 12px; min-width: calc(220px + var(--cols) * 104px);
+  grid-template-columns: 32px minmax(140px, 1.4fr) repeat(var(--cols), minmax(92px, 1fr));
+}
+.results-head { padding: 0 16px; font-size: 12px; font-weight: 600; color: var(--muted, #6b7280); text-transform: uppercase; letter-spacing: .04em; }
+.results-head .results-tact { text-align: right; }
+.results-tact small { display: block; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.results-tact.current { color: var(--cta); }
+.results-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.results-row { background: #fff; border-radius: 16px; padding: 12px 16px; }
+.results-place { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; background: #f3f4f6; }
+.results-place.first { background: var(--cta); color: var(--cta-text); }
+.results-company { display: flex; flex-direction: column; min-width: 0; }
+.results-company strong { font-size: 16px; }
+.results-company small { font-size: 12px; color: var(--muted, #6b7280); }
+.results-value { display: flex; flex-direction: column; align-items: flex-end; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 4px 8px; border-radius: 12px; }
+.results-value.current { background: var(--cta-soft); color: var(--cta-hover); }
+.results-value.negative { color: #b91c1c; }
+.results-value small { font-size: 12px; font-weight: 600; }
+.results-value small.up { color: #047857; }
+.results-value small.down { color: #b91c1c; }

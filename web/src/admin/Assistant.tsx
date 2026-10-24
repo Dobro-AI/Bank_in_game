@@ -175,14 +175,68 @@ export function Assistant({ ctx }: { ctx: Ctx }) {
       ? { on: recording, toggle: toggleRecording, label: recording ? 'Остановить запись' : 'Записать голосовое' }
       : null;
 
+  // A suggestion goes into the field to be edited, not sent at once.
+  const insert = (hint: string) => {
+    setText(hint);
+    requestAnimationFrame(() => {
+      const el = input.current;
+      el?.focus();
+      el?.setSelectionRange(hint.length, hint.length);
+    });
+  };
+  const empty = timeline.length === 0 && !busy;
+
+  const hints = (
+    <div className="hints" role="list" aria-label="Варианты вопроса">
+      {SUGGESTIONS.map((h) => (
+        <button key={h} type="button" role="listitem" className="hint" onClick={() => insert(h)} disabled={busy}>{h}</button>
+      ))}
+    </div>
+  );
+  const composer = (
+    <form className="composer" onSubmit={send}>
+      <div className="composer-card">
+        {image && (
+          <div className="composer-photo">
+            <img src={image.preview} alt="Фото для помощника" className="thumb" />
+            <button type="button" className="composer-photo-remove" aria-label="Убрать фото" onClick={() => setImage(undefined)}><CloseIcon /></button>
+          </div>
+        )}
+        <textarea ref={input} value={text} onChange={(e) => setText(e.target.value)} placeholder="Спросите про игру или пришлите фото бумажки"
+          aria-label="Сообщение помощнику" rows={1}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
+        <div className="composer-tools">
+          <button type="button" className="icon-btn" aria-label="Прикрепить фото" title="Прикрепить фото" onClick={() => photoInput.current?.click()}><ImageAddIcon /></button>
+          <input ref={photoInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { onPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+          <span className="grow" />
+          {mic && (
+            <button type="button" className="icon-btn" aria-label={mic.label} title={mic.label} aria-pressed={mic.on} onClick={mic.toggle}><MicIcon /></button>
+          )}
+          <button className="send-btn" aria-label="Отправить" disabled={busy || (!text.trim() && !image)}><SendIcon /></button>
+        </div>
+      </div>
+    </form>
+  );
+
+  // Before the first question: everything in the middle of the screen, like a search page.
+  if (empty) {
+    return (
+      <section className="assistant assistant-start">
+        <h2 className="assistant-title">Чем помочь?</h2>
+        <p className="small muted" style={{ margin: 0, textAlign: 'center' }}>
+          Помощник читает данные игры, но двигает деньги только после вашего подтверждения.
+        </p>
+        {hints}
+        {composer}
+        <ErrorText error={error} />
+        {note && <p className="small muted">{note}</p>}
+      </section>
+    );
+  }
+
   return (
     <section className="assistant">
-      <p className="small muted" style={{ margin: 0 }}>Помощник читает данные игры, но двигает деньги только после вашего подтверждения.</p>
-
       <div className="chat" aria-live="polite">
-        {timeline.length === 0 && (
-          <p className="muted">Сфотографируйте бумажку с переводом, спросите про балансы и переводы или попросите придумать механику.</p>
-        )}
         {timeline.map((item) => 'm' in item && item.m ? (
           <div key={item.key} className={`bubble ${item.m.role}`}>
             {item.m.hasImage && <div className="tiny muted">Фото</div>}
@@ -197,31 +251,8 @@ export function Assistant({ ctx }: { ctx: Ctx }) {
 
       <ErrorText error={error} />
       {note && <p className="small muted">{note}</p>}
-
-      <div className="hints" role="list" aria-label="Подсказки">
-        {SUGGESTIONS.map((s) => (
-          <button key={s} role="listitem" className="hint" onClick={() => send(undefined, s)} disabled={busy}>{s}</button>
-        ))}
-      </div>
-      <form className="composer" onSubmit={send}>
-        {image && (
-          <div className="composer-photo">
-            <img src={image.preview} alt="Фото для помощника" className="thumb" />
-            <button type="button" className="composer-photo-remove" aria-label="Убрать фото" onClick={() => setImage(undefined)}><CloseIcon /></button>
-          </div>
-        )}
-        <div className="composer-bar">
-          <button type="button" className="icon-btn" aria-label="Прикрепить фото" onClick={() => photoInput.current?.click()}><ImageAddIcon /></button>
-          <input ref={photoInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { onPhoto(e.target.files?.[0]); e.target.value = ''; }} />
-          <textarea ref={input} value={text} onChange={(e) => setText(e.target.value)} placeholder="Написать сообщение…"
-            aria-label="Сообщение помощнику" rows={1}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
-          {mic && (
-            <button type="button" className="icon-btn" aria-label={mic.label} title={mic.label} aria-pressed={mic.on} onClick={mic.toggle}><MicIcon /></button>
-          )}
-          <button className="send-btn" aria-label="Отправить" disabled={busy || (!text.trim() && !image)}><SendIcon /></button>
-        </div>
-      </form>
+      {hints}
+      {composer}
     </section>
   );
 }

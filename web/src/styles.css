@@ -168,26 +168,32 @@ tfoot td { font-weight: 650; background: #fafafa; }
 .hint:hover:not(:disabled) { background: #f3f4f6; }
 .hint:disabled { opacity: 0.5; cursor: default; }
 
-/* Message bar: photo, text, microphone and a round send button in one rounded field. */
+/* Message field: the text on top, photo / microphone / send in a row below, in one rounded card. */
 .composer { display: flex; flex-direction: column; gap: 8px; }
-.composer-bar {
-  display: flex; align-items: flex-end; gap: 4px; padding: 4px; border: 1px solid #d1d5db; border-radius: 24px; background: var(--surface);
+.composer-card {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 12px 8px; border: 1px solid #d1d5db; border-radius: 16px; background: var(--surface);
 }
-.composer-bar:focus-within { border-color: var(--text); }
-.composer .composer-bar textarea {
-  flex: 1; min-height: 44px; max-height: 160px; padding: 10px 4px; border: none; border-radius: 0; background: transparent;
-  font-size: 15px; resize: none; outline: none;
+.composer-card:focus-within { border-color: var(--text); }
+.composer .composer-card textarea {
+  width: 100%; min-height: 44px; max-height: 160px; padding: 4px; border: none; border-radius: 0; background: transparent;
+  font-size: 16px; resize: none; outline: none; box-shadow: none;
 }
+.composer-tools { display: flex; align-items: center; gap: 4px; }
 .icon-btn, .send-btn {
   flex-shrink: 0; display: grid; place-items: center; width: 44px; height: 44px; border: none; border-radius: 999px;
   background: transparent; color: var(--muted); cursor: pointer;
 }
 .icon-btn:hover { background: #f3f4f6; color: var(--text); }
 .icon-btn[aria-pressed='true'] { background: #fee2e2; color: var(--danger); }
-.send-btn { background: var(--text); color: #fff; }
-.send-btn svg { width: 20px; height: 20px; margin: 2px 2px 0 0; }
+.send-btn { width: 40px; height: 40px; background: var(--text); color: #fff; }
+.send-btn svg { width: 18px; height: 18px; margin: 2px 2px 0 0; }
 .send-btn:disabled { opacity: 0.3; cursor: default; }
 .icon-btn:focus-visible, .send-btn:focus-visible, .hint:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+/* First screen of the assistant: title, question variants and the field in the middle. */
+.assistant-start { margin: 12vh auto 0; align-items: stretch; width: 100%; max-width: 640px; }
+.assistant-title { margin: 0; text-align: center; font-size: 24px; font-weight: 600; }
+.assistant-start .hints { flex-wrap: wrap; justify-content: center; overflow: visible; mask-image: none; padding: 0; margin: 8px 0 0; }
 .composer-photo { position: relative; align-self: flex-start; }
 .thumb { width: 72px; height: 72px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--line); }
 .composer-photo-remove {

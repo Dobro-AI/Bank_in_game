@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import { Link, NavLink, Route, Routes } from 'react-router-dom';
 import { ACCOUNT_KIND, api, useLive, useLoad } from '../api';
 import { ErrorText, Money } from '../ui';
 import { AccountPage, ConnectByPin, NewLegal } from './Accounts';
 import { History, OperationRow } from './History';
-import { BuildingIcon, ChevronIcon, HistoryIcon, HomeIcon, MoreIcon, PlusIcon, TransferIcon } from '../icons';
+import { BuildingIcon, ChartIcon, ChevronIcon, HistoryIcon, HomeIcon, MoreIcon, PlusIcon, TransferIcon } from '../icons';
 import { Join } from './Join';
+import { ResultsBoard, type Results } from '../Results';
 import { TactClock, TactTimer } from '../TactTimer';
 import { telegramLogin } from '../telegram';
 import { ScreenHeader } from './Screen';
@@ -23,8 +25,20 @@ const NAV = [
   { to: '/play', label: 'Главная', icon: <HomeIcon />, end: true },
   { to: '/play/transfer', label: 'Переводы', icon: <TransferIcon /> },
   { to: '/play/history', label: 'История', icon: <HistoryIcon /> },
+  { to: '/play/results', label: 'Итоги', icon: <ChartIcon /> },
   { to: '/play/more', label: 'Ещё', icon: <MoreIcon /> },
 ];
+
+/** "Итоги тактов" for players: every company's balance after each tact, live. */
+function PlayerResults({ tick }: { tick: number }) {
+  const r = useLoad(() => api<Results>('/api/player/results'), [tick]);
+  return (
+    <>
+      <ScreenHeader title="Итоги тактов" />
+      {r.data ? <ResultsBoard data={r.data} /> : <ErrorText error={r.error} />}
+    </>
+  );
+}
 
 /** App shell: left sidebar on desktop, bottom tab bar on phones. */
 function Bank({ me, onLogout }: { me: Me; onLogout: () => void }) {
@@ -35,7 +49,8 @@ function Bank({ me, onLogout }: { me: Me; onLogout: () => void }) {
     const r = await api<{ tact: TactClock | null; now: string }>('/api/player/tact');
     return { ...r, offset: new Date(r.now).getTime() - Date.now() };
   }, []);
-  useLive(me.gameId, () => { accounts.reload(); history.reload(); tact.reload(); });
+  const [tick, setTick] = useState(0);
+  useLive(me.gameId, () => { accounts.reload(); history.reload(); tact.reload(); setTick((t) => t + 1); });
   // The company comes first: it opens by default and transfers go from it.
   const list = [...(accounts.data ?? [])].sort((a, b) => Number(b.kind === 'legal') - Number(a.kind === 'legal'));
   const ops = history.data ?? [];
@@ -62,6 +77,7 @@ function Bank({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <Route path="transfer" element={<RecipientPicker accounts={list} />} />
             <Route path="transfer/:toId" element={<AmountPage accounts={list} />} />
             <Route path="history" element={<History accounts={list} ops={ops} />} />
+            <Route path="results" element={<PlayerResults tick={tick} />} />
             <Route path="more" element={<More me={me} accounts={list} onLogout={onLogout} />} />
             <Route path="more/connect" element={<ConnectByPin accounts={list} reload={accounts.reload} />} />
             <Route path="new" element={<NewLegal me={me} />} />

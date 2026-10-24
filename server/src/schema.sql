@@ -318,3 +318,15 @@ create index if not exists transfer_attempt_game_idx on transfer_attempt (game_i
 -- before count as begun; the next tact, created when one ends, waits for "Начать такт".
 alter table tact add column if not exists begun_at timestamptz default now();
 alter table tact add column if not exists ends_at timestamptz;
+
+-- Each game master may have their own copy of the game's Google sheet (the admin's is game.sheet_id);
+-- the bank writes the same sheets into every one of them.
+create table if not exists staff_sheet (
+  game_id int not null references game(id) on delete cascade,
+  staff_id int not null references staff(id) on delete cascade,
+  sheet_id text not null,
+  sheet_gids jsonb not null default '{}',
+  synced_at timestamptz,
+  error text not null default '',
+  primary key (game_id, staff_id)
+);

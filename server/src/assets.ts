@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, Db, Tx } from './db.js';
-import { closeTact, membersByAccount, ownersText, tacts as listTacts } from './reports.js';
+import { PLANNED_TACTS, closeTact, membersByAccount, ownersText, tacts as listTacts } from './reports.js';
 import { hostAccountId, transferEvents, transferTx } from './transfers.js';
 
 /**
@@ -275,4 +275,38 @@ export async function ageAssets(tx: Tx, gameId: number, closed: { number: number
       }
     }
   }
+}
+
+/**
+ * "Итоги тактов": every company's balance after each tact — column E of "Счета". A finished tact
+ * is its snapshot; the current one is live (income credited, expenses still to be subtracted).
+ */
+export async function tactResults(db: Db, gameId: number) {
+  const all = await listTacts(db, gameId);
+  const accounts = await db.query("select id, kind, title from account where game_id = $1 and kind <> 'host'", [gameId]);
+  const legal = accounts.filter((a) => a.kind === 'legal');
+  const companies = legal.length ? legal : accounts;
+  const members = await membersByAccount(db, gameId);
+  const values = new Map<number, (number | null)[]>(companies.map((a) => [a.id, []]));
+  for (const t of all) {
+    const ends = new Map<number, number>();
+    if (t.closed_at) {
+      for (const s of await db.query('select account_id, balance_end from tact_snapshot where tact_id = $1', [t.id])) ends.set(s.account_id, Number(s.balance_end));
+    } else {
+      for (const r of (await capacityTable(db, gameId, t.id)).rows) {
+        ends.set(r.accountId, r.balance + (r.revenue - (r.postedRevenue ?? 0)) - (r.opex - (r.postedOpex ?? 0)));
+      }
+    }
+    for (const a of companies) values.get(a.id)!.push(ends.get(a.id) ?? null);
+  }
+  const planned = Math.max(PLANNED_TACTS, all.length);
+  return {
+    tacts: Array.from({ length: planned }, (_, i) => {
+      const t = all[i];
+      return { number: i + 1, status: !t ? 'future' : t.closed_at ? 'closed' : t.begun_at ? 'running' : 'waiting', extra: i + 1 > PLANNED_TACTS };
+    }),
+    rows: companies
+      .map((a) => ({ accountId: a.id, title: a.title, owner: ownersText(members.get(a.id)).owner, values: [...values.get(a.id)!, ...Array(planned - all.length).fill(null)] }))
+      .sort((x, y) => x.title.localeCompare(y.title, 'ru')),
+  };
 }

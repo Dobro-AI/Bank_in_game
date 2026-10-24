@@ -135,6 +135,19 @@ describe('готовые игры', () => {
   });
 });
 
+describe('итоги тактов', () => {
+  it('остаток после каждого такта: завершённый — из слепка, текущий — с расходами, которые спишутся', async () => {
+    const before = await assets.tactResults(db, branchId);
+    expect(before.tacts.map((t) => t.status)).toEqual(['running', 'future', 'future']);
+    const ivi = () => before.rows.find((r) => r.title === 'IVI')!;
+    expect(ivi().values).toEqual([100 - 20, null, null]);
+    await assets.finishTact(db, branchId, staffId);
+    const after = await assets.tactResults(db, branchId);
+    expect(after.tacts.map((t) => t.status)).toEqual(['closed', 'waiting', 'future']);
+    expect(after.rows.find((r) => r.title === 'IVI')!.values.slice(0, 2)).toEqual([80, 60]);
+  });
+});
+
 describe('расчётка такта', () => {
   it('вписанный заработок и расходы проводятся при завершении такта, правка — только разницей', async () => {
     const ivi = await company('IVI');

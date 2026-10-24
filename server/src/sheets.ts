@@ -91,9 +91,11 @@ async function gameNames(db: Db, gameId: number) {
  * Files the connected spreadsheet under base folder / <root game> and gives it the standard name.
  * The host keeps owning the file (it uses their Drive storage); the bank only moves it.
  */
-export async function placeInFolder(db: Db, gameId: number) {
+export async function placeInFolder(db: Db, gameId: number, copy?: { sheetId: string; owner: string }) {
   const base = await getSetting(db, 'drive_folder_id');
   const g = await gameNames(db, gameId);
+  // A game master's copy is named after them: "Развлечения — Игорь Воробьев".
+  if (copy) Object.assign(g, { sheet_id: copy.sheetId, sheetName: `${g.sheetName} — ${copy.owner}` });
   if (!base || !g.sheet_id) return;
   const api = (await userClient(db)) ?? google();
   const folder = await ensureFolder(api, g.folderName, base);
@@ -419,49 +421,79 @@ export function gridRequests(sheetId: number, g: Grid): object[] {
   ];
 }
 
+/** Writes the sheets into one spreadsheet; returns the tab ids (remembered so Google is asked only when a tab is missing). */
+async function writeSheet(api: JWT, sheetId: string, known: Record<string, number>, sheets: Grid[]) {
+  let gids = known;
+  if (!sheets.every((s) => s.title in gids)) {
+    const meta = await api.request<{ sheets: { properties: { title: string; sheetId: number } }[] }>({
+      url: `${API}/${sheetId}?fields=sheets.properties(title,sheetId)`,
+    });
+    gids = Object.fromEntries(meta.data.sheets.map((x) => [x.properties.title, x.properties.sheetId]));
+    const missing = sheets.filter((x) => !(x.title in gids));
+    if (missing.length) {
+      const added = await api.request<{ replies: { addSheet?: { properties: { title: string; sheetId: number } } }[] }>({
+        url: `${API}/${sheetId}:batchUpdate`, method: 'POST',
+        // The account sheet goes first, the way the organisers' own file opens.
+        data: { requests: [
+          ...missing.map((x) => ({ addSheet: { properties: { title: x.title, ...(x.first ? { index: 0 } : {}) } } })),
+          ...OBSOLETE.filter((t) => t in gids).map((t) => ({ deleteSheet: { sheetId: gids[t] } })),
+        ] },
+      });
+      for (const r of added.data.replies) if (r.addSheet) gids[r.addSheet.properties.title] = r.addSheet.properties.sheetId;
+      for (const t of OBSOLETE) delete gids[t];
+    }
+  }
+  await api.request({
+    url: `${API}/${sheetId}:batchUpdate`, method: 'POST',
+    data: { requests: sheets.flatMap((x) => gridRequests(gids[x.title], x)) },
+  });
+  return gids;
+}
+
+const failure = (e: any) => {
+  if (!(e instanceof AppError)) console.error('sheets sync', e?.response?.data ?? e);
+  return e instanceof AppError ? e.message
+    : e?.response?.status === 403 || e?.response?.status === 404 ? `Нет доступа к таблице: откройте её для ${serviceEmail()} с правом редактирования`
+    : 'Не удалось записать в Google-таблицу';
+};
+
+/**
+ * Writes the game into its main sheet (the admin's) and into every game master's own copy.
+ * Each sheet keeps its own error; the main sheet's error is thrown.
+ */
 export async function syncNow(db: Db, gameId: number) {
   const [g] = await db.query('select sheet_id, sheet_gids from game where id = $1', [gameId]);
-  if (!g?.sheet_id) throw new AppError('Google-таблица не подключена');
+  const copies = await db.query('select staff_id, sheet_id, sheet_gids from staff_sheet where game_id = $1', [gameId]);
+  if (!g?.sheet_id && !copies.length) throw new AppError('Google-таблица не подключена');
+  let api: JWT;
+  let sheets: Grid[];
   try {
-    const api = google();
-    const sheets = await buildSheets(db, gameId);
-    // Tab ids are remembered; Google is asked only when a tab is missing (first sync, deleted tab).
-    let gids: Record<string, number> = g.sheet_gids ?? {};
-    if (!sheets.every((s) => s.title in gids)) {
-      const meta = await api.request<{ sheets: { properties: { title: string; sheetId: number } }[] }>({
-        url: `${API}/${g.sheet_id}?fields=sheets.properties(title,sheetId)`,
-      });
-      gids = Object.fromEntries(meta.data.sheets.map((x) => [x.properties.title, x.properties.sheetId]));
-      const missing = sheets.filter((x) => !(x.title in gids));
-      if (missing.length) {
-        const added = await api.request<{ replies: { addSheet?: { properties: { title: string; sheetId: number } } }[] }>({
-          url: `${API}/${g.sheet_id}:batchUpdate`, method: 'POST',
-          // The account sheet goes first, the way the organisers' own file opens.
-          data: { requests: [
-            ...missing.map((x) => ({ addSheet: { properties: { title: x.title, ...(x.first ? { index: 0 } : {}) } } })),
-            ...OBSOLETE.filter((t) => t in gids).map((t) => ({ deleteSheet: { sheetId: gids[t] } })),
-          ] },
-        });
-        for (const r of added.data.replies) if (r.addSheet) gids[r.addSheet.properties.title] = r.addSheet.properties.sheetId;
-        for (const t of OBSOLETE) delete gids[t];
-      }
-      await db.query('update game set sheet_gids = $2 where id = $1', [gameId, JSON.stringify(gids)]);
-    }
-    await api.request({
-      url: `${API}/${g.sheet_id}:batchUpdate`, method: 'POST',
-      data: { requests: sheets.flatMap((x) => gridRequests(gids[x.title], x)) },
-    });
-    await db.query("update game set sheet_synced_at = now(), sheet_error = '' where id = $1", [gameId]);
+    api = google();
+    sheets = await buildSheets(db, gameId);
   } catch (e: any) {
-    // A tab deleted by hand makes the remembered ids stale: forget them, the next sync re-reads.
-    if (e?.response?.status === 400) await db.query("update game set sheet_gids = '{}' where id = $1", [gameId]).catch(() => {});
-    const message = e instanceof AppError ? e.message
-      : e?.response?.status === 403 || e?.response?.status === 404 ? `Нет доступа к таблице: откройте её для ${serviceEmail()} с правом редактирования`
-      : 'Не удалось записать в Google-таблицу';
-    if (!(e instanceof AppError)) console.error('sheets sync', e?.response?.data ?? e);
-    await db.query('update game set sheet_error = $2 where id = $1', [gameId, message]);
-    throw new AppError(message, 502);
+    throw new AppError(failure(e), 502);
   }
+  let mainError: string | null = null;
+  if (g.sheet_id) {
+    try {
+      const gids = await writeSheet(api, g.sheet_id, g.sheet_gids ?? {}, sheets);
+      await db.query("update game set sheet_gids = $2, sheet_synced_at = now(), sheet_error = '' where id = $1", [gameId, JSON.stringify(gids)]);
+    } catch (e: any) {
+      mainError = failure(e);
+      // A tab deleted by hand makes the remembered ids stale: forget them, the next sync re-reads.
+      await db.query(`update game set sheet_error = $2${e?.response?.status === 400 ? ", sheet_gids = '{}'" : ''} where id = $1`, [gameId, mainError]);
+    }
+  }
+  for (const c of copies) {
+    try {
+      const gids = await writeSheet(api, c.sheet_id, c.sheet_gids ?? {}, sheets);
+      await db.query("update staff_sheet set sheet_gids = $3, synced_at = now(), error = '' where game_id = $1 and staff_id = $2", [gameId, c.staff_id, JSON.stringify(gids)]);
+    } catch (e: any) {
+      await db.query(`update staff_sheet set error = $3${e?.response?.status === 400 ? ", sheet_gids = '{}'" : ''} where game_id = $1 and staff_id = $2`,
+        [gameId, c.staff_id, failure(e)]);
+    }
+  }
+  if (mainError) throw new AppError(mainError, 502);
 }
 
 const timers = new Map<number, NodeJS.Timeout>();
@@ -479,8 +511,10 @@ export function scheduleSync(db: Db, gameId: number, delayMs = 1200) {
   if (timers.has(gameId)) return;
   timers.set(gameId, setTimeout(async () => {
     timers.delete(gameId);
-    const [g] = await db.query('select sheet_id from game where id = $1', [gameId]).catch(() => [null]);
-    if (!g?.sheet_id) return;
+    const [g] = await db.query(
+      "select sheet_id <> '' or exists (select 1 from staff_sheet where game_id = $1) as mirrored from game where id = $1", [gameId],
+    ).catch(() => [null]);
+    if (!g?.mirrored) return;
     running.add(gameId);
     await syncNow(db, gameId).catch(() => {});
     running.delete(gameId);

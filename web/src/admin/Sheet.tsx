@@ -3,7 +3,8 @@ import { api, dateTime, useLoad } from '../api';
 import { ErrorText, Field } from '../ui';
 import type { Ctx } from './GamePage';
 
-interface Status { sheetId: string; syncedAt: string | null; error: string; serviceEmail: string | null; baseFolderId: string; gameFolderId: string; oauthConfigured: boolean; googleUser: string | null }
+interface Copy { staffId: number; name: string; sheetId: string; syncedAt: string | null; error: string }
+interface Status { copies: Copy[]; me: number; sheetId: string; syncedAt: string | null; error: string; serviceEmail: string | null; baseFolderId: string; gameFolderId: string; oauthConfigured: boolean; googleUser: string | null }
 
 /** Live mirror of the game in Google Sheets, embedded in the cabinet. */
 export function Sheet({ ctx }: { ctx: Ctx }) {
@@ -41,6 +42,20 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
 
   if (!s) return <ErrorText error={status.error} />;
   const url = s.sheetId ? `https://docs.google.com/spreadsheets/d/${s.sheetId}/edit` : '';
+  // A game master connects their own copy; the main sheet and everyone's copies are the admin's business.
+  if (!ctx.d.can.super) {
+    const mine = s.copies.find((c) => c.staffId === s.me);
+    return (
+      <div className="stack">
+        <h2 style={{ margin: 0 }}>Ваша Google-таблица</h2>
+        <p className="small muted" style={{ margin: 0 }}>
+          Создайте пустую Google-таблицу, откройте её для <strong>{s.serviceEmail ?? 'технического аккаунта'}</strong> с правом «Редактор» и вставьте ссылку:
+          банк назовёт её по игре и вашему имени и будет заполнять листы «Счета», «Переводы», «Мощности».
+        </p>
+        {mine ? <CopyRow ctx={ctx} copy={mine} onSaved={status.reload} /> : <p className="small muted">Вас ещё не прикрепили к этой игре.</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="stack">
@@ -86,6 +101,16 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
         </div>
         <ErrorText error={error || s.error} />
       </form>
+      <section className="panel stack">
+        <h2 style={{ margin: 0 }}>Таблицы игротехников</h2>
+        <p className="small muted" style={{ margin: 0 }}>
+          У каждого игротехника своя копия: банк пишет в неё то же, что и в вашу. Создайте пустую таблицу в
+          {s.gameFolderId ? <> <a href={`https://drive.google.com/drive/folders/${s.gameFolderId}`} target="_blank" rel="noreferrer">подпапке игры</a></> : ' подпапке игры'}
+          {' '}(доступ для банка там уже есть) и вставьте ссылку — банк назовёт её «{ctx.d.game.title} — имя».
+        </p>
+        {s.copies.map((c) => <CopyRow key={c.staffId} ctx={ctx} copy={c} onSaved={status.reload} />)}
+        {s.copies.length === 0 && <p className="small muted">К игре не прикреплены игротехники — это делается ниже.</p>}
+      </section>
       {url && (
         <iframe className="sheet-frame" src={`${url}?rm=minimal`} title="Google-таблица игры" />
       )}
@@ -94,6 +119,36 @@ export function Sheet({ ctx }: { ctx: Ctx }) {
         Исправлять приход и расход активов нужно в разделе «Мощности».
       </p>
     </div>
+  );
+}
+
+/** One game master's copy: the link, connect / disconnect, and how the last write went. */
+function CopyRow({ ctx, copy, onSaved }: { ctx: Ctx; copy: Copy; onSaved: () => void }) {
+  const [link, setLink] = useState(copy.sheetId ? `https://docs.google.com/spreadsheets/d/${copy.sheetId}/edit` : '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const save = async (sheet: string) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api(`/api/admin/games/${ctx.id}/staff-sheet`, { method: 'PUT', body: { staffId: copy.staffId, sheet } });
+      if (!sheet) setLink('');
+      onSaved();
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <form className="copy-row" onSubmit={(e) => { e.preventDefault(); save(link); }}>
+      <strong className="copy-name">{copy.name}</strong>
+      <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" aria-label={`Таблица: ${copy.name}`} />
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn small primary" disabled={busy || !link}>{copy.sheetId ? 'Сохранить' : 'Подключить'}</button>
+        {copy.sheetId && <a className="btn small" href={`https://docs.google.com/spreadsheets/d/${copy.sheetId}/edit`} target="_blank" rel="noreferrer">Открыть</a>}
+        {copy.sheetId && <button type="button" className="link-btn" disabled={busy} onClick={() => save('')}>Отключить</button>}
+      </div>
+      <span className={copy.error || error ? 'tiny error' : 'tiny muted'}>
+        {error || copy.error || (copy.syncedAt ? `Обновлено ${dateTime(copy.syncedAt)}` : copy.sheetId ? 'Ещё не обновлялась' : 'Не подключена')}
+      </span>
+    </form>
   );
 }
 

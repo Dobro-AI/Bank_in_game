@@ -1,7 +1,8 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, useLive, useLoad } from '../api';
-import { BoxIcon, BranchIcon, FlagIcon, GearIcon, HistoryIcon, KeyIcon, SparkIcon, TableIcon, TransferIcon } from '../icons';
+import { BoxIcon, BranchIcon, ChartIcon, FlagIcon, GearIcon, HistoryIcon, KeyIcon, SparkIcon, TableIcon, TransferIcon } from '../icons';
+import { ResultsBoard, type Results } from '../Results';
 import { TactTimer } from '../TactTimer';
 import { Select } from '../Select';
 import { Confirm, Empty, ErrorText, Field, Money } from '../ui';
@@ -20,9 +21,10 @@ export interface GameData {
   can: { config: boolean; run: boolean; super: boolean };
 }
 
-type Section = 'money' | 'history' | 'capacity' | 'tact' | 'roles' | 'assistant' | 'rules' | 'settings' | 'branches';
+type Section = 'results' | 'money' | 'history' | 'capacity' | 'tact' | 'roles' | 'assistant' | 'rules' | 'settings' | 'branches';
 
 const SECTIONS: Record<Section, { label: string; icon: ReactNode }> = {
+  results: { label: 'Итоги тактов', icon: <ChartIcon /> },
   money: { label: 'Счета', icon: <TableIcon /> },
   history: { label: 'Переводы', icon: <TransferIcon /> },
   capacity: { label: 'Мощности', icon: <BoxIcon /> },
@@ -51,11 +53,12 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
   const assistant: Section[] = staff.kind === 'super' ? ['assistant'] : [];
   const sections: Section[] = isRoot
     ? ['rules', 'branches', ...assistant]
-    : ['money', 'history', 'capacity', 'tact', 'roles', ...assistant, 'rules', 'settings'];
+    : ['results', 'money', 'history', 'capacity', 'tact', ...assistant, 'roles', 'rules', 'settings'];
   const current = sections.includes(params.section as Section) ? (params.section as Section) : sections[0];
   const ctx = { id, d, accounts: accounts.data ?? [], tacts: tacts.data ?? [], tick, reload: () => { data.reload(); accounts.reload(); tacts.reload(); } };
   const items: NavItem[] = sections.map((k, i) => ({
     to: i === 0 ? `/admin/g/${id}` : `/admin/g/${id}/${k}`, end: i === 0, label: SECTIONS[k].label, icon: SECTIONS[k].icon,
+    group: k === 'assistant' ? 'assistant' : ['roles', 'rules', 'settings', 'branches'].includes(k) ? 'minor' : 'main',
   }));
 
   return (
@@ -72,10 +75,11 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
       </header>
       {!isRoot && d.game.status === 'draft' && <LaunchBanner ctx={ctx} />}
       <TactTimer tact={ctx.tacts.find((t) => !t.closed_at)} />
-      {current === 'money' && <SheetView ctx={ctx} section="money" tabs={['Счета']} initial="bank"><MoneyPage ctx={ctx} /></SheetView>}
-      {current === 'history' && <SheetView ctx={ctx} section="history" tabs={['Переводы']} initial="bank"><Transfers ctx={ctx} /></SheetView>}
+      {current === 'results' && <AdminResults ctx={ctx} />}
+      {current === 'money' && <SheetView ctx={ctx} section="money" tabs={['Счета']}><MoneyPage ctx={ctx} /></SheetView>}
+      {current === 'history' && <SheetView ctx={ctx} section="history" tabs={['Переводы']}><Transfers ctx={ctx} /></SheetView>}
       {current === 'capacity' && (
-        <SheetView ctx={ctx} section="capacity" tabs={['Мощности']} initial="bank"><Capacities ctx={ctx} /></SheetView>
+        <SheetView ctx={ctx} section="capacity" tabs={['Мощности']}><Capacities ctx={ctx} /></SheetView>
       )}
       {current === 'tact' && <TactPage ctx={ctx} />}
       {current === 'roles' && <Codes ctx={ctx} />}
@@ -91,9 +95,15 @@ export type Ctx = { id: number; d: GameData; accounts: any[]; tacts: any[]; tick
 
 const STATUS: Record<string, string> = { draft: 'не запущена', active: 'идёт', finished: 'завершена' };
 
+function AdminResults({ ctx }: { ctx: Ctx }) {
+  const r = useLoad(() => api<Results>(`/api/admin/games/${ctx.id}/results`), [ctx.id, ctx.tick]);
+  return r.data ? <ResultsBoard data={r.data} /> : <ErrorText error={r.error} />;
+}
+
 function OpenTact({ tacts }: { tacts: any[] }) {
   const open = tacts.find((t) => !t.closed_at);
-  if (!open) return null;
+  // While the countdown runs, the timer in the corner already says which tact it is.
+  if (!open || open.ends_at) return null;
   return open.begun_at ? <span className="chip accent">Идёт такт {open.number}</span> : <span className="chip">Такт {open.number} не начат</span>;
 }
 

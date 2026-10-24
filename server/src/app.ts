@@ -741,6 +741,19 @@ export function buildApp(
     return res;
   });
 
+  // ---------- "Итоги тактов": shown to everyone, game masters and players ----------
+
+  app.get('/api/admin/games/:id/results', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'view');
+    return assets.tactResults(db, id);
+  });
+
+  app.get('/api/player/results', async (req) => {
+    const p = await needPlayer(req);
+    return assets.tactResults(db, p.gameId);
+  });
+
   // ---------- Assets, capacities, revenue and OPEX per tact ----------
 
   app.get('/api/admin/games/:id/capacity', async (req) => {
@@ -801,9 +814,22 @@ export function buildApp(
 
   // ---------- Google Sheets mirror ----------
 
-  async function sheetStatus(id: number) {
+  async function sheetStatus(id: number, viewer: { id: number; kind: string }) {
     const [g] = await db.query('select sheet_id, sheet_synced_at, sheet_error, drive_folder_id, sheet_gids from game where id = $1', [id]);
+    // Game masters' own copies; the admin's sheet is the main one (game.sheet_id).
+    const copies = await db.query(
+      `select s.id as "staffId", s.name, coalesce(c.sheet_id, '') as "sheetId", c.synced_at as "syncedAt", coalesce(c.error, '') as error
+       from game_staff gs join staff s on s.id = gs.staff_id
+       left join staff_sheet c on c.game_id = gs.game_id and c.staff_id = s.id
+       where gs.game_id = $1 and s.kind <> 'super' order by s.name`,
+      [id],
+    );
+    const [own] = await db.query('select sheet_id, sheet_gids from staff_sheet where game_id = $1 and staff_id = $2', [id, viewer.id]);
+    // Everyone sees their own sheet in the sections: a game master their copy, the admin the main one.
+    const view = own ? { sheetId: own.sheet_id, gids: own.sheet_gids }
+      : viewer.kind === 'super' ? { sheetId: g.sheet_id, gids: g.sheet_gids } : { sheetId: '', gids: {} };
     return {
+      view, copies, me: viewer.id,
       sheetId: g.sheet_id, gids: g.sheet_gids, syncedAt: g.sheet_synced_at, error: g.sheet_error, serviceEmail: sheets.serviceEmail(),
       baseFolderId: await sheets.getSetting(db, 'drive_folder_id'), gameFolderId: g.drive_folder_id,
       oauthConfigured: googleUser.oauthConfigured(), googleUser: await googleUser.connectedEmail(db),
@@ -852,21 +878,21 @@ export function buildApp(
 
   app.post('/api/admin/games/:id/sheet/create', async (req) => {
     const id = Number((req.params as any).id);
-    const { game } = await needGame(req, id, 'config');
+    const { game, staff } = await needGame(req, id, 'config');
     if (game.kind !== 'branch') throw new AppError('Таблица создаётся для ответвления игры');
     await sheets.createInFolder(db, id);
-    return sheetStatus(id);
+    return sheetStatus(id, staff);
   });
 
   app.get('/api/admin/games/:id/sheet', async (req) => {
     const id = Number((req.params as any).id);
-    await needGame(req, id, 'view');
-    return sheetStatus(id);
+    const { staff } = await needGame(req, id, 'view');
+    return sheetStatus(id, staff);
   });
 
   app.put('/api/admin/games/:id/sheet', async (req) => {
     const id = Number((req.params as any).id);
-    await needGame(req, id, 'config');
+    const { staff } = await needGame(req, id, 'config');
     const sheetId = sheets.parseSheetId((req.body as any).sheet);
     await db.query("update game set sheet_id = $2, sheet_error = '', sheet_synced_at = null, sheet_gids = '{}' where id = $1", [id, sheetId]);
     if (sheetId) {
@@ -874,14 +900,38 @@ export function buildApp(
       await sheets.placeInFolder(db, id).catch((e) => console.error('drive place', e?.response?.data?.error?.message ?? e));
       await sheets.syncNow(db, id).catch(() => {});
     }
-    return sheetStatus(id);
+    return sheetStatus(id, staff);
+  });
+
+  /** A game master's own copy of the sheet: the admin connects anyone's, a game master their own; '' disconnects. */
+  app.put('/api/admin/games/:id/staff-sheet', async (req) => {
+    const id = Number((req.params as any).id);
+    const { staff } = await needGame(req, id, 'view');
+    const b = req.body as any;
+    const staffId = Number(b.staffId);
+    if (staff.kind !== 'super' && staffId !== staff.id) throw new AppError('Свою таблицу подключает сам игротехник или админ', 403);
+    const [owner] = await db.query('select s.name from game_staff gs join staff s on s.id = gs.staff_id where gs.game_id = $1 and s.id = $2', [id, staffId]);
+    if (!owner) throw new AppError('Игротехник не прикреплён к этой игре', 404);
+    const sheetId = sheets.parseSheetId(b.sheet);
+    if (!sheetId) {
+      await db.query('delete from staff_sheet where game_id = $1 and staff_id = $2', [id, staffId]);
+      return sheetStatus(id, staff);
+    }
+    await db.query(
+      `insert into staff_sheet (game_id, staff_id, sheet_id) values ($1, $2, $3)
+       on conflict (game_id, staff_id) do update set sheet_id = excluded.sheet_id, sheet_gids = '{}', synced_at = null, error = ''`,
+      [id, staffId, sheetId],
+    );
+    await sheets.placeInFolder(db, id, { sheetId, owner: owner.name }).catch((e) => console.error('drive place', e?.response?.data?.error?.message ?? e));
+    await sheets.syncNow(db, id).catch(() => {});
+    return sheetStatus(id, staff);
   });
 
   app.post('/api/admin/games/:id/sheet/sync', async (req) => {
     const id = Number((req.params as any).id);
-    await needGame(req, id, 'view');
+    const { staff } = await needGame(req, id, 'view');
     await sheets.syncNow(db, id).catch(() => {});
-    return sheetStatus(id);
+    return sheetStatus(id, staff);
   });
 
   app.patch('/api/admin/games/:id/rules', async (req) => {

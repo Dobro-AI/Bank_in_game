@@ -2,9 +2,10 @@ import { ReactNode, useState } from 'react';
 import { api, useLoad } from '../api';
 import type { Ctx } from './GamePage';
 
-interface Status { sheetId: string; gids: Record<string, number> }
+interface Status { view: { sheetId: string; gids: Record<string, number> } }
 
-const KEY = 'sheetView:';
+// v2: the Google sheet became the default; earlier saved choices are ignored once.
+const KEY = 'sheetView2:';
 const load = (section: string, fallback: 'google' | 'bank') => {
   try { return (localStorage.getItem(KEY + section) as 'google' | 'bank' | null) ?? fallback; } catch { return fallback; }
 };
@@ -19,7 +20,8 @@ export function SheetView({ ctx, section, tabs, initial = 'google', children }: 
   const status = useLoad(() => api<Status>(`/api/admin/games/${ctx.id}/sheet`), [ctx.id]);
   const [mode, setMode] = useState<'google' | 'bank'>(() => load(section, initial));
   const [tab, setTab] = useState(tabs[0]);
-  const s = status.data;
+  // Each game master sees their own copy of the sheet; without one the bank's table is shown.
+  const s = status.data?.view;
   if (!s?.sheetId) return <>{children}</>;
 
   const choose = (m: 'google' | 'bank') => {

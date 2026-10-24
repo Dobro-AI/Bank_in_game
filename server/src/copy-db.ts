@@ -9,7 +9,7 @@ const TABLES = [
   'staff', 'game', 'game_staff', 'role', 'asset_type', 'start_account', 'price_item', 'player',
   'account', 'account_member', 'tact', 'transfer', 'tact_snapshot', 'account_event',
   'assistant_thread', 'assistant_message', 'assistant_proposal', 'asset_ledger', 'tact_output',
-  'tact_posting', 'transfer_attempt', 'app_setting', 'telegram_link', 'staff_telegram',
+  'tact_posting', 'transfer_attempt', 'staff_sheet', 'app_setting', 'telegram_link', 'staff_telegram',
 ];
 // Self-references must be inserted in id order so the parent row exists first.
 const ORDER: Record<string, string> = { game: 'id', role: 'id', asset_type: 'id', start_account: 'id', price_item: 'id' };
