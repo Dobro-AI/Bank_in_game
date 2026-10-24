@@ -131,6 +131,12 @@ export function buildApp(
     return needGame(req, row.game_id, 'config');
   }
 
+  // Timer length in whole minutes: a tact lasts up to 30; 0 means no timer.
+  const minutesOf = (v: unknown) => {
+    const n = Number(v ?? 0);
+    if (!Number.isInteger(n) || n < 0 || n > 30) throw new AppError('Таймер — от 1 до 30 минут');
+    return n;
+  };
   const num = (v: unknown) => (v === undefined || v === '' || v === null ? undefined : Number(v));
   const filtersOf = (q: any): reports.Filters => ({ tactId: num(q.tact), roleId: num(q.role), accountId: num(q.account) });
   const entityOf = (e: string): games.Entity => {
@@ -243,13 +249,20 @@ export function buildApp(
 
   // ---------- Player ----------
 
+  /** The current tact and its countdown, for the timer in the corner; `now` lets the client correct its clock. */
+  app.get('/api/player/tact', async (req) => {
+    const p = await needPlayer(req);
+    const [t] = await db.query('select number, begun_at, ends_at from tact where game_id = $1 and closed_at is null', [p.gameId]);
+    return { tact: t ?? null, now: new Date().toISOString() };
+  });
+
   app.get('/api/player/accounts', async (req) => {
     const p = await needPlayer(req);
     const members = await reports.membersByAccount(db, p.gameId);
     const rows = await db.query(
       `select a.id, a.kind, a.title, a.balance, m.member, m.pin_ok as "pinOk"
        from account a join account_member m on m.account_id = a.id
-       where m.role_id = $1 order by (a.kind = 'individual') desc, a.title`,
+       where m.role_id = $1 order by (a.kind = 'legal') desc, a.title`,
       [p.roleId],
     );
     return rows.map((a) => ({ ...a, members: members.get(a.id) ?? [] }));
@@ -675,6 +688,49 @@ export function buildApp(
     });
     changed(id);
     return res;
+  });
+
+  /** "Начать такт", optionally with a countdown of `minutes`; while a tact runs the timer can be reset or removed. */
+  app.post('/api/admin/games/:id/tact/start', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'run');
+    const ends = minutesOf((req.body as any)?.minutes);
+    const [t] = await db.query(
+      `update tact set begun_at = coalesce(begun_at, now()), ends_at = case when $2::int > 0 then now() + make_interval(secs => $2::int * 60) else ends_at end
+       where game_id = $1 and closed_at is null returning *`,
+      [id, ends],
+    );
+    if (!t) throw new AppError('Игра ещё не запущена');
+    changed(id);
+    return t;
+  });
+
+  app.put('/api/admin/games/:id/tact/timer', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'run');
+    const ends = minutesOf((req.body as any)?.minutes);
+    const [t] = await db.query(
+      `update tact set ends_at = case when $2::int > 0 then now() + make_interval(secs => $2::int * 60) end
+       where game_id = $1 and closed_at is null returning *`,
+      [id, ends],
+    );
+    if (!t) throw new AppError('Игра ещё не запущена');
+    changed(id);
+    return t;
+  });
+
+  /** "+1 мин": each click adds a minute to the countdown (an expired one restarts from now). */
+  app.post('/api/admin/games/:id/tact/add-minute', async (req) => {
+    const id = Number((req.params as any).id);
+    await needGame(req, id, 'run');
+    const [t] = await db.query(
+      `update tact set ends_at = greatest(coalesce(ends_at, now()), now()) + interval '1 minute'
+       where game_id = $1 and closed_at is null returning *`,
+      [id],
+    );
+    if (!t) throw new AppError('Игра ещё не запущена');
+    changed(id);
+    return t;
   });
 
   app.post('/api/admin/games/:id/close-tact', async (req) => {

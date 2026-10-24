@@ -311,3 +311,8 @@ create table if not exists transfer_attempt (
   created_at timestamptz not null default now()
 );
 create index if not exists transfer_attempt_game_idx on transfer_attempt (game_id);
+
+-- A tact is begun by the game master ("Начать такт") and may have a countdown. Tacts that existed
+-- before count as begun; the next tact, created when one ends, waits for "Начать такт".
+alter table tact add column if not exists begun_at timestamptz default now();
+alter table tact add column if not exists ends_at timestamptz;

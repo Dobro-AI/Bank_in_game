@@ -293,3 +293,57 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .capacities tbody td.cost-sum { background: #f4cccc; font-weight: 600; }
 .capacities tbody td.power { background: #fef5ec; }
 .capacities tbody td.power-sum { background: #fce5cd; font-weight: 600; }
+
+/* Tact countdown: pinned to the top-right corner of every screen. */
+.tact-timer {
+  position: fixed; top: 12px; right: 16px; z-index: 60;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 0;
+  padding: 8px 16px; border-radius: 12px; background: #0a0a0a; color: #fff;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07); pointer-events: none;
+}
+.tact-timer-label { font-size: 12px; opacity: .75; }
+.tact-timer-time { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.tact-timer-add {
+  pointer-events: auto; margin-top: 4px; min-height: 32px; padding: 4px 10px; border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.12); color: #fff; font-weight: 600; cursor: pointer;
+}
+.tact-timer-add:hover { background: rgba(255, 255, 255, 0.24); }
+.tact-timer-add:active { transform: scale(0.96); }
+.tact-timer.soon { background: #b45309; }
+.tact-timer.over { background: #b91c1c; }
+@media (max-width: 760px) {
+  .tact-timer { top: 12px; right: 12px; padding: 6px 12px; }
+  /* The cabinet's menu is a sticky strip on top here: the timer sits just below it. */
+  .bank-shell.admin .tact-timer { top: 72px; }
+  .tact-timer-time { font-size: 20px; }
+}
+
+.tact-now { gap: 16px; display: flex; flex-direction: column; }
+.tact-now-title { font-size: 24px; font-weight: 700; }
+.tact-now-clock { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bank .btn.add-minute { min-height: 44px; font-weight: 700; }
+.tact-now-clock.soon { color: #b45309; }
+.tact-now-clock.over { color: #b91c1c; font-size: 20px; }
+.timer-pick { display: flex; flex-direction: column; gap: 8px; max-width: 520px; }
+.minutes-input { width: 72px; text-align: right; font-size: 16px; }
+.tact-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.tact-card { display: flex; flex-direction: column; gap: 8px; }
+.tact-card.current { border-color: var(--cta); box-shadow: inset 0 0 0 1px var(--cta); }
+.tact-card-lines { display: flex; flex-direction: column; gap: 4px; }
+.tact-card-lines > div { display: flex; justify-content: space-between; gap: 8px; }
+
+/* Range slider: a soft track filled up to the thumb, a large thumb that is easy to drag. */
+.bank input.slider { -webkit-appearance: none; appearance: none; width: 100%; height: 44px; padding: 0; border: 0; box-shadow: none; background: transparent; cursor: pointer; margin: 0; }
+.slider:focus-visible { outline: none; }
+.slider::-webkit-slider-runnable-track {
+  height: 8px; border-radius: 999px;
+  background: linear-gradient(to right, var(--cta) var(--fill, 0%), #e5e7eb var(--fill, 0%));
+}
+.slider::-moz-range-track { height: 8px; border-radius: 999px; background: #e5e7eb; }
+.slider::-moz-range-progress { height: 8px; border-radius: 999px; background: var(--cta); }
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 24px; height: 24px; margin-top: -8px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--cta); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.slider::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 2px solid var(--cta); }
+.slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--cta-soft); }

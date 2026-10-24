@@ -5,6 +5,7 @@ import { AccountPage, ConnectByPin, NewLegal } from './Accounts';
 import { History, OperationRow } from './History';
 import { BuildingIcon, ChevronIcon, HistoryIcon, HomeIcon, MoreIcon, PlusIcon, TransferIcon } from '../icons';
 import { Join } from './Join';
+import { TactClock, TactTimer } from '../TactTimer';
 import { telegramLogin } from '../telegram';
 import { ScreenHeader } from './Screen';
 import { AmountPage, RecipientPicker } from './Transfer';
@@ -29,7 +30,12 @@ const NAV = [
 function Bank({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const accounts = useLoad(() => api<Account[]>('/api/player/accounts'), []);
   const history = useLoad(() => api<Operation[]>('/api/player/history'), []);
-  useLive(me.gameId, () => { accounts.reload(); history.reload(); });
+  // The countdown: the server's clock is the reference, so the device clock is corrected by `offset`.
+  const tact = useLoad(async () => {
+    const r = await api<{ tact: TactClock | null; now: string }>('/api/player/tact');
+    return { ...r, offset: new Date(r.now).getTime() - Date.now() };
+  }, []);
+  useLive(me.gameId, () => { accounts.reload(); history.reload(); tact.reload(); });
   // The company comes first: it opens by default and transfers go from it.
   const list = [...(accounts.data ?? [])].sort((a, b) => Number(b.kind === 'legal') - Number(a.kind === 'legal'));
   const ops = history.data ?? [];
@@ -48,6 +54,7 @@ function Bank({ me, onLogout }: { me: Me; onLogout: () => void }) {
         ))}
       </nav>
       <main className="bank-main">
+        <TactTimer tact={tact.data?.tact} offset={tact.data?.offset} />
         <ErrorText error={accounts.error} />
         {accounts.data && (
           <Routes>

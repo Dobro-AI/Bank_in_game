@@ -16,6 +16,9 @@ export const KIND_LABEL: Record<string, string> = {
   initial: 'Стартовый баланс',
 };
 
+/** The game is planned for this many tacts; later ones are extra ("дополнительный"). */
+export const PLANNED_TACTS = 3;
+
 export async function tacts(db: Tx, gameId: number) {
   return db.query('select * from tact where game_id = $1 order by number', [gameId]);
 }
@@ -184,7 +187,7 @@ export async function closeTact(
       );
     }
     await tx.query('update tact set closed_at = now() where id = $1', [open.id]);
-    const [next] = await tx.query('insert into tact (game_id, number) values ($1, $2) returning *', [gameId, open.number + 1]);
+    const [next] = await tx.query('insert into tact (game_id, number, begun_at) values ($1, $2, null) returning *', [gameId, open.number + 1]);
     if (onNextTact) await onNextTact(tx, open, next);
     return { closed: open, next };
   });

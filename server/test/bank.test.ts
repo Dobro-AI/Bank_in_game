@@ -269,7 +269,7 @@ describe('Google-таблица: «Счета» и «Переводы»', () => 
     const [t2, n2] = rowOf(from.title, 1);
     expect(t2[1]).toBe(`=E${n1}`);
     // All three tacts are on the sheet from the start; the third is still empty.
-    expect(rows.filter((r) => /^\d такт/.test(String(r[0]))).map((r) => r[0])).toEqual(['1 такт', '2 такт — идёт', '3 такт']);
+    expect(rows.filter((r) => /^\d такт/.test(String(r[0]))).map((r) => r[0])).toEqual(['1 такт', '2 такт — не начат', '3 такт']);
     expect(rowOf(from.title, 2)[0][1]).toBe(`=E${n2}`);
   });
 
@@ -281,11 +281,44 @@ describe('Google-таблица: «Счета» и «Переводы»', () => 
     const to = await accountOf(banker.roleId, 'individual');
     await expect(playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 500, comment: 'много' }))
       .rejects.toThrow('Недостаточно средств');
+    await new Promise((r) => setTimeout(r, 5)); // the log is ordered by time
     await playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 5 });
     const log = values((await buildSheets(db, branchId)).find((x) => x.title === 'Переводы')!);
     expect(log[0].slice(0, 2)).toEqual(['Статус', 'Причина']);
     const mine = log.filter((r) => r[5] === from.title);
     expect(mine.map((r) => [r[0], r[1], r[8]])).toEqual([['Отклонено', 'Недостаточно средств на счёте', 500], ['Принято', '', 5]]);
     expect(mine[0][4]).toContain('(Мэр)');
+  });
+});
+
+describe('такты: начать, таймер, закончить', () => {
+  it('следующий такт ждёт «Начать такт», таймер ставится в минутах, после третьего идёт дополнительный', async () => {
+    const { buildApp } = await import('../src/app.js');
+    const { ensureSuper } = await import('../src/bootstrap.js');
+    const { buildSheets, values } = await import('../src/sheets.js');
+    await ensureSuper(db, 'boss', 'secret123');
+    await db.query("insert into game_staff (game_id, staff_id) select $1, id from staff where login = 'boss'", [branchId]);
+    const app = buildApp(db);
+    const login = await app.inject({ method: 'POST', url: '/api/staff/login', payload: { login: 'boss', password: 'secret123' } });
+    const cookie = login.headers['set-cookie'] as string;
+    const call = (method: 'POST' | 'PUT', url: string, payload: unknown = {}) =>
+      app.inject({ method, url: `/api/admin/games/${branchId}${url}`, payload: payload as any, headers: { cookie } });
+    const open = async () => (await db.query('select * from tact where game_id = $1 and closed_at is null', [branchId]))[0];
+
+    const t = (await call('POST', '/tact/start', { minutes: 15 })).json();
+    expect(new Date(t.ends_at).getTime() - Date.now()).toBeGreaterThan(14 * 60_000);
+    const plus = (await call('POST', '/tact/add-minute')).json();
+    expect(new Date(plus.ends_at).getTime() - new Date(t.ends_at).getTime()).toBe(60_000);
+    expect((await call('PUT', '/tact/timer', { minutes: 0 })).json().ends_at).toBeNull();
+    expect((await call('PUT', '/tact/timer', { minutes: 500 })).statusCode).toBe(400);
+
+    for (let i = 0; i < 3; i++) await call('POST', '/close-tact');
+    const fourth = await open();
+    expect(fourth).toMatchObject({ number: 4, begun_at: null });
+    await call('POST', '/tact/start');
+    expect((await open()).begun_at).not.toBeNull();
+    const headers = values((await buildSheets(db, branchId))[0]).map((r) => String(r[0])).filter((x) => /^\d такт/.test(x));
+    expect(headers).toEqual(['1 такт', '2 такт', '3 такт', '4 такт — дополнительный, идёт']);
+    await app.close();
   });
 });

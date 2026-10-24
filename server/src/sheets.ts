@@ -3,7 +3,7 @@ import { JWT, OAuth2Client } from 'google-auth-library';
 import * as assets from './assets.js';
 import { AppError, Db } from './db.js';
 import { userClient } from './google-user.js';
-import { KIND_LABEL, listTransfers, membersByAccount, summary, tacts, totalsByOwner } from './reports.js';
+import { KIND_LABEL, PLANNED_TACTS, listTransfers, tacts } from './reports.js';
 
 /**
  * One-way mirror of a game into a Google spreadsheet: after every change the bank rewrites the
@@ -166,8 +166,10 @@ type Cell = string | number;
 const dt = (d: string | Date) =>
   new Date(d).toLocaleString('ru-RU', { timeZone: process.env.TZ_DISPLAY ?? 'Europe/Moscow', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-/** The game is planned for three tacts: all of them are on "Счета" from the start. */
-const TACTS_SHOWN = 3;
+/** "1 такт — идёт", "4 такт — дополнительный, завершён": planned tacts are shown from the start, extra ones are marked. */
+const tactLabel = (t: { number: number; closed_at: unknown; begun_at?: unknown; future?: boolean }) =>
+  `${t.number} такт${[t.number > PLANNED_TACTS ? 'дополнительный' : '', t.future || t.closed_at ? '' : t.begun_at ? 'идёт' : 'не начат']
+    .filter(Boolean).map((x, i) => (i ? `, ${x}` : ` — ${x}`)).join('')}`;
 
 /** One cell: its value (a formula starts with "=") and its look. */
 export interface Spec {
@@ -218,7 +220,7 @@ async function capacitySheet(db: Db, gameId: number) {
   for (const t of await tacts(db, gameId)) {
     const cap = await assets.capacityTable(db, gameId, t.id);
     tall[cells.length] = 32;
-    cells.push(pad([{ ...BLACK, v: `${t.number} такт${t.closed_at ? '' : ' — идёт'}`, size: 12 }], width, { bg: PEACH }));
+    cells.push(pad([{ ...BLACK, v: tactLabel(t), size: 12 }], width, { bg: PEACH }));
     const first = cells.length + 1;
     const rows = [...cap.rows].sort((x, y) => kindOrder[x.kind] - kindOrder[y.kind] || x.title.localeCompare(y.title, 'ru'));
     rows.filter((r) => r.assets.some((x) => x.end || x.output)).forEach((r, i) => {
@@ -263,7 +265,7 @@ async function accountsSheet(db: Db, gameId: number, title: string, cap: Awaited
     [gameId],
   );
   const played = await tacts(db, gameId);
-  const all = [...played, ...Array.from({ length: Math.max(0, TACTS_SHOWN - played.length) }, (_, i) => ({ id: 0, number: played.length + i + 1, closed_at: null, future: true }))];
+  const all = [...played, ...Array.from({ length: Math.max(0, PLANNED_TACTS - played.length) }, (_, i) => ({ id: 0, number: played.length + i + 1, closed_at: null, begun_at: null, future: true }))];
   const capBy = new Map<number, Map<number, any>>();
   for (const t of played) capBy.set(t.id, new Map((await assets.capacityTable(db, gameId, t.id)).rows.map((r) => [r.accountId, r])));
   // Income and expense postings are shown in C and D, not as transfers; start capital is in B.
@@ -289,7 +291,7 @@ async function accountsSheet(db: Db, gameId: number, title: string, cap: Awaited
   const prevRow = new Map<number, number>();
   for (const t of all) {
     tall[cells.length] = 36;
-    cells.push(pad([{ ...BLACK, v: `${t.number} такт${'future' in t ? '' : t.closed_at ? '' : ' — идёт'}`, size: 14 }], width, { bg: PEACH }));
+    cells.push(pad([{ ...BLACK, v: tactLabel(t), size: 14 }], width, { bg: PEACH }));
     const first = cells.length + 1;
     accounts.forEach((x, i) => {
       const n = cells.length + 1;

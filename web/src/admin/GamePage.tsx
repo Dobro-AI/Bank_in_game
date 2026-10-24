@@ -1,7 +1,8 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ACCOUNT_KIND, KIND_LABEL, api, dateTime, useLive, useLoad } from '../api';
-import { BoxIcon, BranchIcon, FlagIcon, GearIcon, KeyIcon, SparkIcon, TableIcon, TransferIcon } from '../icons';
+import { BoxIcon, BranchIcon, FlagIcon, GearIcon, HistoryIcon, KeyIcon, SparkIcon, TableIcon, TransferIcon } from '../icons';
+import { TactTimer } from '../TactTimer';
 import { Select } from '../Select';
 import { Confirm, Empty, ErrorText, Field, Money } from '../ui';
 import type { Staff } from './AdminApp';
@@ -12,18 +13,20 @@ import { Config } from './Config';
 import { AdminShell, NavItem } from './Shell';
 import { Sheet } from './Sheet';
 import { SheetView } from './SheetView';
+import { TactPage } from './Tact';
 
 export interface GameData {
   game: any; roles: any[]; startAccounts: any[]; priceItems: any[]; assetTypes: any[]; staff: Staff[]; branches: any[];
   can: { config: boolean; run: boolean; super: boolean };
 }
 
-type Section = 'money' | 'history' | 'capacity' | 'roles' | 'assistant' | 'rules' | 'settings' | 'branches';
+type Section = 'money' | 'history' | 'capacity' | 'tact' | 'roles' | 'assistant' | 'rules' | 'settings' | 'branches';
 
 const SECTIONS: Record<Section, { label: string; icon: ReactNode }> = {
   money: { label: 'Счета', icon: <TableIcon /> },
   history: { label: 'Переводы', icon: <TransferIcon /> },
   capacity: { label: 'Мощности', icon: <BoxIcon /> },
+  tact: { label: 'Такт', icon: <HistoryIcon /> },
   roles: { label: 'Роли', icon: <KeyIcon /> },
   assistant: { label: 'Помощник', icon: <SparkIcon /> },
   rules: { label: 'Правила игры', icon: <FlagIcon /> },
@@ -48,7 +51,7 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
   const assistant: Section[] = staff.kind === 'super' ? ['assistant'] : [];
   const sections: Section[] = isRoot
     ? ['rules', 'branches', ...assistant]
-    : ['money', 'history', 'capacity', 'roles', ...assistant, 'rules', 'settings'];
+    : ['money', 'history', 'capacity', 'tact', 'roles', ...assistant, 'rules', 'settings'];
   const current = sections.includes(params.section as Section) ? (params.section as Section) : sections[0];
   const ctx = { id, d, accounts: accounts.data ?? [], tacts: tacts.data ?? [], tick, reload: () => { data.reload(); accounts.reload(); tacts.reload(); } };
   const items: NavItem[] = sections.map((k, i) => ({
@@ -68,11 +71,14 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
         {!isRoot && d.game.status === 'active' && <OpenTact tacts={ctx.tacts} />}
       </header>
       {!isRoot && d.game.status === 'draft' && <LaunchBanner ctx={ctx} />}
+      <TactTimer tact={ctx.tacts.find((t) => !t.closed_at)}
+        onAdd={d.can.run ? () => api(`/api/admin/games/${id}/tact/add-minute`, { body: {} }).then(ctx.reload, () => {}) : undefined} />
       {current === 'money' && <SheetView ctx={ctx} section="money" tabs={['Счета']} initial="bank"><MoneyPage ctx={ctx} /></SheetView>}
       {current === 'history' && <SheetView ctx={ctx} section="history" tabs={['Переводы']} initial="bank"><Transfers ctx={ctx} /></SheetView>}
       {current === 'capacity' && (
         <SheetView ctx={ctx} section="capacity" tabs={['Мощности']} initial="bank"><Capacities ctx={ctx} /></SheetView>
       )}
+      {current === 'tact' && <TactPage ctx={ctx} />}
       {current === 'roles' && <Codes ctx={ctx} />}
       {current === 'assistant' && <Assistant ctx={ctx} />}
       {current === 'rules' && <Config ctx={ctx} />}
@@ -88,7 +94,8 @@ const STATUS: Record<string, string> = { draft: 'не запущена', active:
 
 function OpenTact({ tacts }: { tacts: any[] }) {
   const open = tacts.find((t) => !t.closed_at);
-  return open ? <span className="chip accent">Идёт такт {open.number}</span> : null;
+  if (!open) return null;
+  return open.begun_at ? <span className="chip accent">Идёт такт {open.number}</span> : <span className="chip">Такт {open.number} не начат</span>;
 }
 
 function LaunchBanner({ ctx }: { ctx: Ctx }) {

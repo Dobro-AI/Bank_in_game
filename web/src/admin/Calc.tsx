@@ -46,9 +46,6 @@ export function Money({ ctx }: { ctx: Ctx }) {
   const { q, cap, picker } = useTact(ctx);
   const sum = useLoad(() => api<{ rows: SumRow[] }>(`/api/admin/games/${ctx.id}/summary${q}`), [ctx.id, q, ctx.tick]);
   const [moneyFor, setMoneyFor] = useState<CapRow>();
-  const [finish, setFinish] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
 
   if (ctx.d.game.status === 'draft') return <Empty>Счета появятся после запуска игры</Empty>;
   if (!cap.data || !sum.data) return <ErrorText error={cap.error || sum.error} />;
@@ -61,33 +58,17 @@ export function Money({ ctx }: { ctx: Ctx }) {
   const moved = (r: CapRow, s?: SumRow) => (s ? s.received - s.sent : 0) - (r.postedRevenue ?? 0) + (r.postedOpex ?? 0);
   const start = (r: CapRow) => bySum.get(r.accountId)?.balanceStart ?? 0;
   const end = (r: CapRow) => (open ? afterTact(r) : bySum.get(r.accountId)?.balanceEnd ?? 0);
-  const pendingOpex = rows.reduce((t, r) => t + r.opex - (r.postedOpex ?? 0), 0);
   const total = (f: (r: CapRow) => number) => rows.reduce((t, r) => t + f(r), 0);
   const reload = () => { cap.reload(); sum.reload(); };
-
-  async function doFinish() {
-    setBusy(true);
-    setError(undefined);
-    try {
-      await api(`/api/admin/games/${ctx.id}/close-tact`, { body: {} });
-      setFinish(false);
-      ctx.reload();
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
-  }
 
   return (
     <>
       <div className="row between" style={{ marginBottom: 12 }}>
-        <div className="row">
-          {picker}
-          {editable && <button className="btn primary" onClick={() => setFinish(true)}>Завершить такт {tact.number}</button>}
-        </div>
+        {picker}
         <span className="small muted">
-          {open ? 'Доходы сразу попадают на счёт. Расходы на мощности спишутся при завершении такта.' : 'Такт завершён: суммы зафиксированы.'}
+          {open ? 'Доходы сразу попадают на счёт. Расходы на мощности спишутся, когда такт закончат во вкладке «Такт».' : 'Такт завершён: суммы зафиксированы.'}
         </span>
       </div>
-      <ErrorText error={error} />
-
       <div className="table-wrap">
         <table className="calc">
           <thead>
@@ -138,12 +119,6 @@ export function Money({ ctx }: { ctx: Ctx }) {
       {open && <p className="small muted">Остаток — сколько будет на счёте после завершения такта: на начало + доходы − расходы + переводы.</p>}
 
       {moneyFor && <MoneyDialog ctx={ctx} row={moneyFor} onClose={() => setMoneyFor(undefined)} onDone={() => { setMoneyFor(undefined); ctx.reload(); reload(); }} />}
-      {finish && (
-        <Confirm title={`Завершить такт ${tact.number}?`} busy={busy} error={error} confirmText="Завершить" onCancel={() => setFinish(false)} onConfirm={doFinish}>
-          <div className="summary-line"><span className="muted">Спишутся расходы на мощности</span><Amount value={-pendingOpex} signed /></div>
-          <p className="small muted">Балансы зафиксируются, начнётся такт {tact.number + 1}.</p>
-        </Confirm>
-      )}
     </>
   );
 }
