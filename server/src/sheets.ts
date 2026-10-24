@@ -487,3 +487,45 @@ export function scheduleSync(db: Db, gameId: number, delayMs = 1200) {
     if (again.delete(gameId)) scheduleSync(db, gameId, delayMs);
   }, delayMs));
 }
+
+/**
+ * One tab as the assistant reads it: the cells the bank writes (formulas and notes included) and,
+ * when the game has a sheet, the values Google computed. Rows and columns are 1-based like A1.
+ */
+export async function readSheet(db: Db, gameId: number, title: string, fromRow = 1, toRow = fromRow + 149) {
+  const grid = (await buildSheets(db, gameId)).find((g) => g.title === title);
+  if (!grid) return { error: `Листа «${title}» пока нет: он появляется, когда игра запущена` };
+  const [g] = await db.query('select sheet_id, sheet_gids from game where id = $1', [gameId]);
+  let live: Cell[][] | null = null;
+  if (g?.sheet_id && credentials()) {
+    try {
+      const r = await google().request<{ values?: Cell[][] }>({
+        url: `${API}/${g.sheet_id}/values/${encodeURIComponent(`'${title}'`)}?valueRenderOption=UNFORMATTED_VALUE`,
+      });
+      live = r.data.values ?? [];
+    } catch {
+      live = null;
+    }
+  }
+  const rows = [];
+  for (let n = Math.max(1, fromRow); n <= Math.min(toRow, grid.cells.length); n++) {
+    const cells: Record<string, unknown> = {};
+    const notes: Record<string, string> = {};
+    grid.cells[n - 1].forEach((c, i) => {
+      const col = column(i + 1);
+      const formula = typeof c.v === 'string' && c.v.startsWith('=');
+      const value = formula ? live?.[n - 1]?.[i] : c.v;
+      if (formula) cells[col] = { formula: c.v, ...(value !== undefined && value !== '' ? { value } : {}) };
+      else if (value !== undefined && value !== '') cells[col] = value;
+      if (c.note) notes[col] = c.note;
+    });
+    if (Object.keys(cells).length) rows.push({ row: n, cells, ...(Object.keys(notes).length ? { notes } : {}) });
+  }
+  return {
+    sheet: title,
+    total_rows: grid.cells.length,
+    rows,
+    google_values: !!live,
+    url: g?.sheet_id ? `https://docs.google.com/spreadsheets/d/${g.sheet_id}/edit#gid=${g.sheet_gids?.[title] ?? 0}` : null,
+  };
+}

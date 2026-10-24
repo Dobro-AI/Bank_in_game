@@ -6,18 +6,18 @@ import type { Ctx } from './GamePage';
 
 interface ChatMessage { id: number; role: 'user' | 'assistant'; text: string; hasImage: boolean; created_at: string }
 interface Proposal {
-  id: number; kind: string; status: 'pending' | 'done' | 'rejected'; amount: number; comment: string;
-  sourceNote: string; from: string; to: string; priceItem: string | null;
+  id: number; kind: string; status: 'pending' | 'done' | 'rejected'; title: string; sourceNote: string;
+  lines: { label: string; value: string | number; money?: boolean }[];
 }
 interface ThreadView { threadId: number; messages: ChatMessage[]; proposals: Proposal[]; transcription: boolean }
 
-const KIND: Record<string, string> = { transfer: 'Перевод', host_credit: 'Начисление', host_debit: 'Списание', fixed_price: 'Оплата по прайсу' };
 const STATUS: Record<string, string> = { done: 'Проведено', rejected: 'Отклонено' };
 const SUGGESTIONS = [
   'Сколько денег у каждой роли?',
   'Самые крупные переводы за такт',
   'Кто больше всех заработал?',
   'Что в прайсе и правилах про налоги?',
+  'Что сейчас в листе «Счета»?',
   'Придумай страхование: capex, opex, эффект',
 ];
 
@@ -232,13 +232,14 @@ function ProposalCard({ p, canRun, onDecide }: { p: Proposal; canRun: boolean; o
   return (
     <div className="panel proposal">
       <div className="row between">
-        <strong>{KIND[p.kind]}{p.priceItem ? `: ${p.priceItem}` : ''}</strong>
+        <strong>{p.title}</strong>
         {p.status !== 'pending' && <span className={p.status === 'done' ? 'chip accent' : 'chip'}>{STATUS[p.status]}</span>}
       </div>
-      <div className="summary-line"><span className="muted">Откуда</span><span>{p.from}</span></div>
-      <div className="summary-line"><span className="muted">Куда</span><span>{p.to}</span></div>
-      <div className="summary-line"><span className="muted">Сумма</span><Money value={p.amount} /></div>
-      {p.comment && <div className="summary-line"><span className="muted">Назначение</span><span>{p.comment}</span></div>}
+      {p.lines.map((l) => (
+        <div key={l.label} className="summary-line">
+          <span className="muted">{l.label}</span>{l.money ? <Money value={Number(l.value)} /> : <span>{l.value}</span>}
+        </div>
+      ))}
       {p.sourceNote && <p className="tiny muted">На бумажке: {p.sourceNote}</p>}
       {p.status === 'pending' && canRun && (
         <div className="row end">

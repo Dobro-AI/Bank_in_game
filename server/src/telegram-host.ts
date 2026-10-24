@@ -361,7 +361,7 @@ export function createHostBot(db: Db, token: string) {
       await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, (last?.text || 'Готово.').slice(0, 4000));
       for (const p of view.proposals.filter((x: any) => !before.has(x.id) && x.status === 'pending')) {
         await ctx.reply(
-          `Операция: ${p.from} → ${p.to}, ${fmt(p.amount)}${p.priceItem ? ` (${p.priceItem})` : ''}${p.comment ? `\n${p.comment}` : ''}${p.sourceNote ? `\nНа бумажке: ${p.sourceNote}` : ''}`,
+          [p.title, ...p.lines.map((l) => `${l.label}: ${l.money ? fmt(Number(l.value)) : l.value}`), ...(p.sourceNote ? [`На бумажке: ${p.sourceNote}`] : [])].join('\n'),
           { reply_markup: new InlineKeyboard().text('Провести', `pr:ok:${p.id}`).text('Отклонить', `pr:no:${p.id}`) },
         );
       }

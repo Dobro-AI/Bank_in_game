@@ -180,12 +180,14 @@ create table if not exists assistant_proposal (
   id serial primary key,
   thread_id int not null references assistant_thread(id) on delete cascade,
   game_id int not null references game(id) on delete cascade,
-  kind text not null check (kind in ('transfer', 'host_credit', 'host_debit', 'fixed_price')),
+  kind text not null,
   payload jsonb not null,
   status text not null default 'pending' check (status in ('pending', 'done', 'rejected')),
   transfer_id int references transfer(id),
   created_at timestamptz not null default now()
 );
+-- The assistant also proposes edits of "Счета", "Переводы" and "Мощности"; the kind is checked in code.
+alter table assistant_proposal drop constraint if exists assistant_proposal_kind_check;
 
 -- ---------- Assets and capacities (servers, venues, trucks, staff...) ----------
 
