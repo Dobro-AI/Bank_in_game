@@ -55,7 +55,6 @@ function Login({ onDone }: { onDone: () => void }) {
         <Field label="Пароль"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></Field>
         <ErrorText error={error} />
         <button className="btn primary block">Войти</button>
-        <Link to="/" className="btn link">← На главную</Link>
       </form>
     </main>
   );

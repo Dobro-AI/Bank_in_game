@@ -1,5 +1,4 @@
 import { FormEvent, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { api, useLoad } from '../api';
 import { Empty, ErrorText, Field } from '../ui';
 import { telegramInitData } from '../telegram';
@@ -17,7 +16,6 @@ export function Join({ onJoined }: { onJoined: () => void }) {
   if (!game) {
     return (
       <main className="page narrow">
-        <Link to="/" className="btn link">← Назад</Link>
         <h1>Выберите игру</h1>
         <p className="muted">Игра и её ведущий</p>
         <ErrorText error={games.error} />
