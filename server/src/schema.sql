@@ -264,3 +264,19 @@ create table if not exists telegram_link (
   created_at timestamptz not null default now(),
   primary key (telegram_id, player_id)
 );
+
+-- Host bot: a Telegram chat linked to a staff account, with the game chosen in that chat.
+create table if not exists staff_telegram (
+  telegram_id bigint primary key,
+  staff_id int not null references staff(id) on delete cascade,
+  game_id int references game(id) on delete set null,
+  notify boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- One-time codes from the cabinet that link a Telegram chat to a staff account (t.me/<bot>?start=<code>).
+create table if not exists staff_link_code (
+  code text primary key,
+  staff_id int not null references staff(id) on delete cascade,
+  expires_at timestamptz not null
+);

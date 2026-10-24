@@ -14,6 +14,7 @@ import { AttemptLimiter, hashSecret, newToken, tokenHash, verifySecret } from '.
 import * as googleUser from './google-user.js';
 import * as sheets from './sheets.js';
 import * as telegram from './telegram.js';
+import * as hostBot from './telegram-host.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
 import { hostAdjust, payFixedPrice, playerTransfer } from './transfers.js';
 
@@ -443,6 +444,20 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     await games.launchBranch(db, id);
     changed(id);
     return { ok: true };
+  });
+
+  // ---------- Host Telegram bot: link a chat with a one-time t.me link ----------
+
+  app.get('/api/admin/telegram', async (req) => {
+    const s = await needStaff(req);
+    return { botUsername: hostBot.hostBotUsername() || null, linked: await hostBot.isLinked(db, s.id) };
+  });
+
+  app.post('/api/admin/telegram/link', async (req) => {
+    const s = await needStaff(req);
+    const name = hostBot.hostBotUsername();
+    if (!name) throw new AppError('Бот ведущих не запущен на сервере', 503);
+    return { url: `https://t.me/${name}?start=${await hostBot.createLinkCode(db, s.id)}` };
   });
 
   // ---------- Staff accounts ----------

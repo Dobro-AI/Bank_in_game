@@ -50,3 +50,17 @@ describe('Telegram-бот: привязка и уведомления', () => {
     expect(to.map((r: any) => Number(r.telegram_id))).toEqual([1002]);
   });
 });
+
+describe('Telegram-бот ведущих: привязка', () => {
+  it('одноразовая ссылка привязывает Telegram к ведущему и второй раз не срабатывает', async () => {
+    const { createLinkCode, linkByCode, staffOfTelegram, isLinked } = await import('../src/telegram-host.js');
+    const db = await openDb();
+    const [s] = await db.query("insert into staff (name, login, password_hash, kind) values ('Анна', 'anna', 'x', 'host') returning id");
+    expect(await isLinked(db, s.id)).toBe(false);
+    const code = await createLinkCode(db, s.id);
+    expect((await linkByCode(db, code, 777)).name).toBe('Анна');
+    await expect(linkByCode(db, code, 888)).rejects.toThrow('устарела');
+    expect(await staffOfTelegram(db, 777)).toMatchObject({ staffId: s.id, gameId: null, notify: true });
+    expect(await isLinked(db, s.id)).toBe(true);
+  });
+});

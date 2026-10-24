@@ -2,6 +2,7 @@ import { buildApp } from './app.js';
 import { ensureSuper } from './bootstrap.js';
 import { openDb } from './db.js';
 import { startBot } from './telegram.js';
+import { startHostBot } from './telegram-host.js';
 
 const db = await openDb({ url: process.env.DATABASE_URL, dataDir: process.env.PGLITE_DIR ?? './data' });
 if (await ensureSuper(db, process.env.SUPER_LOGIN, process.env.SUPER_PASSWORD)) {
@@ -12,3 +13,4 @@ const port = Number(process.env.PORT ?? 3000);
 await app.listen({ port, host: process.env.HOST ?? '0.0.0.0' });
 console.log(`Банк запущен: http://localhost:${port}`);
 await startBot(db);
+await startHostBot(db);

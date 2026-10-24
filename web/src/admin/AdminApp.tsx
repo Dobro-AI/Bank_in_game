@@ -5,6 +5,7 @@ import { Empty, ErrorText, Field } from '../ui';
 import { BadgeIcon, GridIcon } from '../icons';
 import { GamePage } from './GamePage';
 import { AdminShell, NavItem } from './Shell';
+import { TelegramLink } from './TelegramLink';
 
 export interface Staff { id: number; name: string; login: string; kind: 'super' | 'host' }
 
@@ -90,6 +91,7 @@ function Games({ staff }: { staff: Staff }) {
 
   return (
     <>
+      <TelegramLink />
       <ErrorText error={games.error} />
       {staff.kind === 'super' ? (
         <>
