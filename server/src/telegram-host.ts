@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import Anthropic from '@anthropic-ai/sdk';
 import { Bot, InlineKeyboard, Keyboard } from 'grammy';
 import * as assets from './assets.js';
 import * as assistant from './assistant.js';
+import * as assistantCli from './assistant-cli.js';
 import { AppError, Db } from './db.js';
 import { KIND_LABEL, listTransfers, summary } from './reports.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
@@ -98,7 +98,7 @@ type State =
 export function createHostBot(db: Db, token: string) {
   const bot = new Bot(token);
   const states = new Map<number, State>();
-  const claude = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN ? new Anthropic() : null;
+  const askAssistant = assistantCli.pickBackend(db);
 
   const menu = () =>
     new Keyboard().text(MENU.summary).text(MENU.transfers).row().text(MENU.adjust).text(MENU.tact).row()
@@ -348,14 +348,15 @@ export function createHostBot(db: Db, token: string) {
   }
 
   async function ask(ctx: any, s: any, input: assistant.ChatInput) {
-    if (!claude) return ctx.reply('Помощник не настроен: на сервере нужен ANTHROPIC_API_KEY.');
+    if (s.kind !== 'super') return ctx.reply('Помощник доступен только админу.');
+    if (!askAssistant) return ctx.reply('Помощник не настроен: на сервере нужен токен подписки Claude или ANTHROPIC_API_KEY.');
     const thinking = await ctx.reply('Помощник думает…');
     const before = new Set((await db.query(
       'select p.id from assistant_proposal p join assistant_thread t on t.id = p.thread_id where t.staff_id = $1 and t.game_id = $2',
       [s.staffId, s.gameId],
     )).map((r) => r.id));
     try {
-      const view = await assistant.chat(db, claude, s.gameId, s.staffId, input);
+      const view = await askAssistant(s.gameId, s.staffId, input);
       const last = [...view.messages].reverse().find((m: any) => m.role === 'assistant');
       await ctx.api.editMessageText(ctx.chat.id, thinking.message_id, (last?.text || 'Готово.').slice(0, 4000));
       for (const p of view.proposals.filter((x: any) => !before.has(x.id) && x.status === 'pending')) {

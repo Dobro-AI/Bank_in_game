@@ -7,6 +7,7 @@ import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import * as assets from './assets.js';
 import * as assistant from './assistant.js';
+import * as assistantCli from './assistant-cli.js';
 import { AppError, Db } from './db.js';
 import * as games from './games.js';
 import * as reports from './reports.js';
@@ -21,17 +22,13 @@ import { hostAdjust, payFixedPrice, playerTransfer, transfer } from './transfers
 const STAFF_COOKIE = 'sid';
 const PLAYER_COOKIE = 'psid';
 
-export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boolean; claude?: assistant.ClaudeClient } = {}) {
+export function buildApp(
+  db: Db,
+  opts: { webDist?: string; secureCookies?: boolean; claude?: assistant.ClaudeClient; cli?: assistantCli.CliRunner } = {},
+) {
   // Photos for the assistant and voice files arrive base64-encoded in JSON.
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
-  let claude = opts.claude;
-  const claudeClient = () => {
-    // Fail before the user's message is stored, with a message the host can act on.
-    if (!claude && !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
-      throw new AppError('Помощник не настроен: задайте ANTHROPIC_API_KEY на сервере', 503);
-    }
-    return (claude ??= new Anthropic());
-  };
+  const askAssistant = assistantCli.pickBackend(db, opts);
   app.register(cookie);
   const bus = new EventEmitter().setMaxListeners(0);
   const changed = (gameId: number) => {
@@ -794,26 +791,44 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
 
   // ---------- AI assistant: a private chat per staff member and game ----------
 
+  /** The assistant runs on the owner's Claude subscription, so only the admin uses it. */
+  async function needAssistant(req: FastifyRequest, gameId: number) {
+    const r = await needGame(req, gameId, 'view');
+    if (r.staff.kind !== 'super') throw new AppError('Помощник доступен только админу', 403);
+    return r;
+  }
+
   app.get('/api/admin/games/:id/assistant', async (req) => {
     const id = Number((req.params as any).id);
-    const { staff } = await needGame(req, id, 'view');
+    const { staff } = await needAssistant(req, id);
     const thread = await assistant.currentThread(db, id, staff.id);
     return { ...(await assistant.threadView(db, thread.id)), transcription: transcriptionEnabled() };
   });
 
   app.post('/api/admin/games/:id/assistant/new', async (req) => {
     const id = Number((req.params as any).id);
-    const { staff } = await needGame(req, id, 'view');
+    const { staff } = await needAssistant(req, id);
     const thread = await assistant.newThread(db, id, staff.id);
     return { ...(await assistant.threadView(db, thread.id)), transcription: transcriptionEnabled() };
   });
 
   app.post('/api/admin/games/:id/assistant/messages', async (req) => {
     const id = Number((req.params as any).id);
-    const { staff } = await needGame(req, id, 'view');
+    const { staff } = await needAssistant(req, id);
     const b = req.body as any;
     const image = b.image?.data ? { mediaType: String(b.image.mediaType), data: String(b.image.data) } : undefined;
-    return assistant.chat(db, claudeClient(), id, staff.id, { text: b.text, image });
+    // Fail before the user's message is stored, with a message the host can act on.
+    if (!askAssistant) {
+      throw new AppError('Помощник не настроен: на сервере нужен токен подписки Claude (claude setup-token) или ANTHROPIC_API_KEY', 503);
+    }
+    return askAssistant(id, staff.id, { text: b.text, image });
+  });
+
+  // Bank tools for the Claude Code CLI run by the assistant (loopback only, per-run token).
+  app.post('/api/mcp', async (req, reply) => {
+    const ctx = assistantCli.mcpContext(req.ip, String(req.headers.authorization ?? '').replace(/^Bearer /, ''));
+    reply.hijack();
+    await assistantCli.serveMcp(db, ctx, req.raw, reply.raw, req.body);
   });
 
   async function needOwnProposal(req: FastifyRequest) {

@@ -30,8 +30,11 @@ services:
       GOOGLE_OAUTH_CLIENT_FILE: /run/secrets/bank/google-oauth-client.json
       TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bank/telegram-bot-token
       TELEGRAM_HOST_BOT_TOKEN_FILE: /run/secrets/bank/telegram-host-bot-token
+      # Token from `claude setup-token`; when the file is missing the assistant falls back to ANTHROPIC_API_KEY.
+      CLAUDE_CODE_OAUTH_TOKEN_FILE: /run/secrets/bank/claude-oauth-token
     volumes:
       - ${SECRETS_DIR:-./secrets}:/run/secrets/bank:ro
+      - claude_home:/home/node/.claude
     labels:
       autoheal: "true"
 
@@ -61,5 +64,6 @@ services:
 
 volumes:
   pgdata:
+  claude_home:
   caddy_data:
   caddy_config:

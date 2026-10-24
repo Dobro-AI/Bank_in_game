@@ -49,9 +49,11 @@ export function GamePage({ staff, onLogout }: { staff: Staff; onLogout: () => vo
   const d = data.data;
   if (!d) return <main className="page"><ErrorText error={data.error} /></main>;
   const isRoot = d.game.kind === 'root';
+  // The assistant runs on the admin's own Claude subscription.
+  const assistant: Section[] = staff.kind === 'super' ? ['assistant'] : [];
   const sections: Section[] = isRoot
-    ? ['config', 'branches', 'assistant']
-    : ['calc', 'summary', 'transfers', 'capacity', 'people', 'codes', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'sheet', 'assistant', 'config', 'staff'];
+    ? ['config', 'branches', ...assistant]
+    : ['calc', 'summary', 'transfers', 'capacity', 'people', 'codes', ...(d.can.run ? ['adjust' as Section] : []), 'tacts', 'sheet', ...assistant, 'config', 'staff'];
   const current = sections.includes(params.section as Section) ? (params.section as Section) : sections[0];
   const ctx = { id, d, accounts: accounts.data ?? [], tacts: tacts.data ?? [], tick, reload: () => { data.reload(); accounts.reload(); tacts.reload(); } };
   const items: NavItem[] = sections.map((k, i) => ({

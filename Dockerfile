@@ -11,6 +11,11 @@ RUN npm run build && npm prune --omit=dev --no-audit --no-fund
 
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+# Claude Code CLI: the assistant runs on the admin's Claude subscription (see server/src/assistant-cli.ts).
+# Its sessions live in /home/node/.claude (a volume, so chats continue after a rebuild).
+ARG CLAUDE_CODE_VERSION=2.1.310
+RUN npm install -g --no-audit --no-fund @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+  && mkdir -p /home/node/.claude /home/node/assistant && chown -R node:node /home/node
 WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules node_modules

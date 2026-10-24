@@ -11,10 +11,10 @@ export interface ClaudeClient {
   beta: { messages: { create(params: Anthropic.Beta.MessageCreateParamsNonStreaming): Promise<Anthropic.Beta.BetaMessage> } };
 }
 
-const MODEL = 'claude-opus-5-5';
+export const MODEL = 'claude-opus-5-5';
 const MAX_STEPS = 10;
 
-const SYSTEM = `Ты — помощник ведущего (игротехника) в банке ролевой игры живого действия. Деньги в игре виртуальные.
+export const SYSTEM = `Ты — помощник ведущего (игротехника) в банке ролевой игры живого действия. Деньги в игре виртуальные.
 Отвечай по-русски, коротко и по делу. Суммы — целые числа, без валюты («1 200»).
 
 Данные:
@@ -43,7 +43,7 @@ const SYSTEM = `Ты — помощник ведущего (игротехник
 
 const nullable = (type: string) => ({ type: [type, 'null'] });
 
-const TOOLS: Tool[] = [
+export const TOOLS: Tool[] = [
   {
     name: 'list_accounts',
     description: 'Все счета игры: id, название, тип (legal — юрлицо, individual — физлицо, host — Игротехник), баланс, владелец и совладельцы (имя игрока и роль).',
@@ -163,7 +163,7 @@ async function gameStats(db: Db, gameId: number) {
   };
 }
 
-async function runTool(db: Db, ctx: { gameId: number; threadId: number }, name: string, input: any): Promise<unknown> {
+export async function runTool(db: Db, ctx: { gameId: number; threadId: number }, name: string, input: any): Promise<unknown> {
   const { gameId } = ctx;
   switch (name) {
     case 'list_accounts':
@@ -284,7 +284,7 @@ async function describeProposals(db: Db, proposals: any[]) {
   });
 }
 
-async function saveMessage(db: Db, threadId: number, m: Msg, text: string, visible: boolean, hasImage = false) {
+export async function saveMessage(db: Db, threadId: number, m: Msg, text: string, visible: boolean, hasImage = false) {
   await db.query(
     'insert into assistant_message (thread_id, role, api, text, visible, has_image) values ($1, $2, $3, $4, $5, $6)',
     [threadId, m.role, JSON.stringify(m), text, visible, hasImage],
@@ -302,12 +302,12 @@ const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
  * One user turn: append the message, run the tool loop to completion, persist every API message
  * unchanged (the transcript is append-only so thinking blocks stay valid on replay).
  */
-export async function chat(db: Db, client: ClaudeClient, gameId: number, staffId: number, input: ChatInput) {
+/** Validates a turn and stores it as the next user message of the staff member's current thread. */
+export async function startTurn(db: Db, gameId: number, staffId: number, input: ChatInput) {
   const text = (input.text ?? '').trim().slice(0, 8000);
   if (!text && !input.image) throw new AppError('Пустое сообщение');
   if (input.image && !IMAGE_TYPES.includes(input.image.mediaType)) throw new AppError('Поддерживаются JPEG, PNG, WebP, GIF');
   const thread = await currentThread(db, gameId, staffId);
-  const ctx = { gameId, threadId: thread.id };
 
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
   if (input.image) {
@@ -316,6 +316,12 @@ export async function chat(db: Db, client: ClaudeClient, gameId: number, staffId
   content.push({ type: 'text', text: text || 'Разбери, что на фото, и подготовь операцию.' });
   const userMsg: Msg = { role: 'user', content };
   await saveMessage(db, thread.id, userMsg, text, true, !!input.image);
+  return { thread, userMsg };
+}
+
+export async function chat(db: Db, client: ClaudeClient, gameId: number, staffId: number, input: ChatInput) {
+  const { thread } = await startTurn(db, gameId, staffId, input);
+  const ctx = { gameId, threadId: thread.id };
 
   const history: Msg[] = (await db.query('select api from assistant_message where thread_id = $1 order by id', [thread.id]))
     .map((r) => r.api);

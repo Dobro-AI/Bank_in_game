@@ -158,6 +158,9 @@ create table if not exists assistant_thread (
   created_at timestamptz not null default now()
 );
 
+-- Claude Code session the thread continues when the assistant runs through the CLI (subscription).
+alter table assistant_thread add column if not exists cli_session text;
+
 -- Append-only API transcript: `api` is the exact message sent to Claude (replayed unchanged);
 -- `text`/`visible` are what the chat UI shows.
 create table if not exists assistant_message (

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { buildApp } from '../src/app.js';
 import * as assistant from '../src/assistant.js';
+import { CliRunner, pickBackend } from '../src/assistant-cli.js';
 import { Db, openDb } from '../src/db.js';
 import * as games from '../src/games.js';
 
@@ -103,5 +105,61 @@ describe('помощник ведущего', () => {
     expect(results).toHaveLength(2);
     expect(JSON.parse(results[0].content).money_supply_players).toBe(600);
     expect(JSON.parse(results[1].content).error).toMatch('Счёт не найден');
+  });
+});
+
+describe('помощник через Claude Code (подписка)', () => {
+  it('CLI получает инструменты банка по MCP, продолжает ту же сессию, токен живёт только на время ответа', async () => {
+    const app = buildApp(db);
+    const city = await account('Мэрия');
+    const port = await account('Порт');
+    const mcp = (token: string, method: string, params: unknown) => app.inject({
+      method: 'POST', url: '/api/mcp',
+      headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
+      payload: { jsonrpc: '2.0', id: 1, method, params },
+    });
+    const turns: any[] = [];
+    let lastToken = '';
+    const run: CliRunner = async (turn) => {
+      turns.push(turn);
+      lastToken = turn.token;
+      const tools = (await mcp(turn.token, 'tools/list', {})).json().result.tools;
+      expect(tools.map((t: any) => t.name)).toContain('propose_operation');
+      if (turns.length === 1) {
+        const res = await mcp(turn.token, 'tools/call', { name: 'propose_operation', arguments: {
+          kind: 'transfer', from_account_id: city.id, to_account_id: port.id, account_id: null, price_item_id: null,
+          amount: 120, comment: 'Аренда', source_note: '' } });
+        expect(JSON.parse(res.json().result.content[0].text).proposal_id).toBeGreaterThan(0);
+      }
+      return { sessionId: 'sess-1', text: 'Операция ждёт подтверждения', isError: false };
+    };
+    const ask = pickBackend(db, { cli: run })!;
+
+    const view = await ask(gameId, hostA, { text: 'Мэрия → Порт 120' });
+    expect(view.messages.map((m: any) => m.text)).toEqual(['Мэрия → Порт 120', 'Операция ждёт подтверждения']);
+    expect(view.proposals).toMatchObject([{ status: 'pending', amount: 120, from: 'Мэрия', to: 'Порт' }]);
+    expect((await account('Мэрия')).balance).toBe(500);
+    expect(turns[0].resume).toBeNull();
+
+    await ask(gameId, hostA, { text: 'А сколько это было?' });
+    expect(turns[1].resume).toBe('sess-1');
+    expect((await mcp(lastToken, 'tools/list', {})).statusCode).toBe(401);
+    await app.close();
+  });
+
+  it('если CLI потерял сессию, начинает новую с пересказом чата', async () => {
+    const turns: any[] = [];
+    const run: CliRunner = async (turn) => {
+      turns.push(turn);
+      if (turn.resume) return { sessionId: '', text: 'No conversation found', isError: true };
+      return { sessionId: `s${turns.length}`, text: 'Ок', isError: false };
+    };
+    const ask = pickBackend(db, { cli: run })!;
+    await ask(gameId, hostA, { text: 'первый' });
+    await ask(gameId, hostA, { text: 'второй' });
+    expect(turns.map((t) => t.resume)).toEqual([null, 's1', null]);
+    expect(turns[2].content[0].text).toContain('Ведущий: первый');
+    const [t] = await db.query('select cli_session from assistant_thread where staff_id = $1', [hostA]);
+    expect(t.cli_session).toBe('s3');
   });
 });
