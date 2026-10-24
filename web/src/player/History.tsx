@@ -20,8 +20,10 @@ export function OperationRow({ op, mine, accountId }: { op: Operation; mine: Set
   const toMine = accountId ? op.to_account_id === accountId : mine.has(op.to_account_id);
   const internal = fromMine && toMine;
   const incoming = toMine && !fromMine;
-  const counterpart = internal ? `${op.from_title} → ${op.to_title}` : incoming ? op.from_title : op.to_title;
-  const purpose = op.comment || KIND_LABEL[op.kind];
+  // Income and expenses of a tact read as such, not as a transfer from the game master.
+  const [head, ...details] = op.posting ? op.comment.split(': ') : [];
+  const counterpart = op.posting ? head : internal ? `${op.from_title} → ${op.to_title}` : incoming ? op.from_title : op.to_title;
+  const purpose = op.posting ? details.join(': ') || KIND_LABEL[op.kind] : op.comment || KIND_LABEL[op.kind];
   return (
     <div className="op-row">
       <span className="avatar small">{initials(incoming ? op.from_title : op.to_title)}</span>

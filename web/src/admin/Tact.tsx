@@ -56,7 +56,7 @@ export function TactPage({ ctx }: { ctx: Ctx }) {
   // Not through `act`: the button stays clickable, so several clicks add several minutes.
   const addMinute = () => api(`/api/admin/games/${ctx.id}/tact/add-minute`, { body: {} }).then(ctx.reload, (e) => setError(e.message));
   const end = () => act(async () => { await api(`/api/admin/games/${ctx.id}/close-tact`, { body: {} }); setFinish(false); });
-  const pendingExpenses = open ? totals.data?.get(open.id)?.expenses ?? 0 : 0;
+  const pending = open ? totals.data?.get(open.id) : undefined;
 
   return (
     <div className="stack">
@@ -136,7 +136,8 @@ export function TactPage({ ctx }: { ctx: Ctx }) {
 
       {finish && open && (
         <Confirm title={`Закончить ${open.number} такт?`} busy={busy} error={error} confirmText="Закончить" onCancel={() => setFinish(false)} onConfirm={end}>
-          <div className="summary-line"><span className="muted">Спишутся расходы на мощности</span><span>−{money(pendingExpenses)}</span></div>
+          <div className="summary-line"><span className="muted">Начислятся доходы</span><span>+{money(pending?.income ?? 0)}</span></div>
+          <div className="summary-line"><span className="muted">Спишутся затраты на мощности</span><span>−{money(pending?.expenses ?? 0)}</span></div>
           <p className="small muted">
             Балансы зафиксируются. Дальше переводы пойдут в {open.number + 1} такт
             {open.number >= PLANNED ? ' — он будет дополнительным' : ''}; начните его кнопкой «Начать такт».

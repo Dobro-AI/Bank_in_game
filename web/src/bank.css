@@ -363,26 +363,25 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .copy-row > .tiny { grid-column: 2 / -1; }
 @media (max-width: 760px) { .copy-row { grid-template-columns: 1fr; } .copy-row > .tiny { grid-column: auto; } }
 
-/* "Итоги тактов": a leaderboard of balances after each tact, readable from across the room. */
-.results { display: flex; flex-direction: column; gap: 8px; overflow-x: auto; }
-.results-head, .results-row {
-  display: grid; align-items: center; gap: 12px; min-width: calc(220px + var(--cols) * 104px);
-  grid-template-columns: 32px minmax(140px, 1.4fr) repeat(var(--cols), minmax(92px, 1fr));
-}
-.results-head { padding: 0 16px; font-size: 12px; font-weight: 600; color: var(--muted, #6b7280); text-transform: uppercase; letter-spacing: .04em; }
-.results-head .results-tact { text-align: right; }
-.results-tact small { display: block; font-weight: 400; text-transform: none; letter-spacing: 0; }
-.results-tact.current { color: var(--cta); }
-.results-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.results-row { background: #fff; border-radius: 16px; padding: 12px 16px; }
-.results-place { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; background: #f3f4f6; }
+/* "Итоги тактов": a leaderboard readable from across the room — per tact income, expenses and the result. */
+.results-wrap { overflow-x: auto; background: #fff; border-radius: 16px; padding: 8px 12px; }
+.bank table.results { width: 100%; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+.results th, .results td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; background: none; }
+.results thead th { font-size: 12px; font-weight: 600; color: var(--muted, #6b7280); }
+.results th.results-tact { text-align: center; font-size: 14px; color: var(--text); border-bottom: none; }
+.results-tact small { font-weight: 400; color: var(--muted, #6b7280); }
+.results .current { background: var(--cta-soft); }
+.results th.results-tact.current { color: var(--cta-hover); border-radius: 12px 12px 0 0; }
+.results th.results-sub.total, .results td.total { border-right: 2px solid var(--line); }
+.results .results-company { text-align: left; }
+.results td.results-company strong { display: block; font-size: 16px; }
+.results td.results-company small { font-size: 12px; color: var(--muted, #6b7280); }
+.results-place { width: 32px; height: 32px; border-radius: 50%; display: inline-grid; place-items: center; font-weight: 700; background: #f3f4f6; }
 .results-place.first { background: var(--cta); color: var(--cta-text); }
-.results-company { display: flex; flex-direction: column; min-width: 0; }
-.results-company strong { font-size: 16px; }
-.results-company small { font-size: 12px; color: var(--muted, #6b7280); }
-.results-value { display: flex; flex-direction: column; align-items: flex-end; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 4px 8px; border-radius: 12px; }
-.results-value.current { background: var(--cta-soft); color: var(--cta-hover); }
-.results-value.negative { color: #b91c1c; }
-.results-value small { font-size: 12px; font-weight: 600; }
-.results-value small.up { color: #047857; }
-.results-value small.down { color: #b91c1c; }
+.results-num { font-size: 16px; }
+.results-num.income { color: #047857; }
+.results-num.expenses { color: #b91c1c; }
+.results-num.zero { color: var(--muted, #6b7280); }
+.results-num.total { font-size: 20px; font-weight: 700; }
+.results-num.total.negative { color: #b91c1c; }
+.results-empty { text-align: center !important; color: var(--muted, #6b7280); }

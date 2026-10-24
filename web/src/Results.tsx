@@ -1,58 +1,71 @@
+import { Fragment } from 'react';
 import { money } from './api';
 
+type Cell = { income: number; expenses: number; total: number } | null;
 export interface Results {
   tacts: { number: number; status: 'closed' | 'running' | 'waiting' | 'future'; extra: boolean }[];
-  rows: { accountId: number; title: string; owner: string; values: (number | null)[] }[];
+  rows: { accountId: number; title: string; owner: string; values: Cell[] }[];
 }
 
 const STATUS: Record<Results['tacts'][number]['status'], string> = { closed: 'завершён', running: 'идёт', waiting: 'не начат', future: 'впереди' };
 
 /**
- * "Итоги тактов": each company's balance after every tact (column E of "Счета"), shown to everyone.
- * Companies go by their latest result; the current tact updates live.
+ * "Итоги тактов", shown to everyone: per company and tact — income, expenses and the balance after
+ * the tact (column E of "Счета"). Companies go by their latest result; the current tact is live.
  */
 export function ResultsBoard({ data }: { data: Results }) {
-  const latest = (r: Results['rows'][number]) => [...r.values].reverse().find((v) => v !== null) ?? null;
+  const latest = (r: Results['rows'][number]) => [...r.values].reverse().find((v) => v !== null)?.total ?? null;
   const rows = [...data.rows].sort((a, b) => (latest(b) ?? -Infinity) - (latest(a) ?? -Infinity) || a.title.localeCompare(b.title, 'ru'));
   const current = data.tacts.findIndex((t) => t.status === 'running' || t.status === 'waiting');
 
   if (!rows.length) return <p className="muted">Итоги появятся после запуска игры</p>;
   return (
-    <div className="results">
-      <div className="results-head" style={{ ['--cols' as any]: data.tacts.length }}>
-        <span />
-        <span className="results-company">Компания</span>
-        {data.tacts.map((t, i) => (
-          <span key={t.number} className={`results-tact${i === current ? ' current' : ''}`}>
-            {t.number} такт
-            <small>{t.extra ? 'доп. · ' : ''}{STATUS[t.status]}</small>
-          </span>
-        ))}
-      </div>
-      <ol className="results-list">
-        {rows.map((r, place) => (
-          <li key={r.accountId} className="results-row" style={{ ['--cols' as any]: data.tacts.length }}>
-            <span className={`results-place${place === 0 ? ' first' : ''}`} aria-label={`${place + 1} место`}>{place + 1}</span>
-            <span className="results-company">
-              <strong>{r.title}</strong>
-              {r.owner && r.owner !== r.title && <small>{r.owner}</small>}
-            </span>
-            {r.values.map((v, i) => {
-              const prev = i > 0 ? r.values[i - 1] : null;
-              const delta = v !== null && prev !== null ? v - prev : null;
-              return (
-                <span key={i} className={`results-value${i === current ? ' current' : ''}${v !== null && v < 0 ? ' negative' : ''}`}>
-                  {v === null ? <span className="muted">—</span> : money(v)}
-                  {delta !== null && delta !== 0 && (
-                    <small className={delta > 0 ? 'up' : 'down'}>{delta > 0 ? '▲' : '▼'} {money(Math.abs(delta))}</small>
-                  )}
-                </span>
-              );
-            })}
-          </li>
-        ))}
-      </ol>
-      <p className="tiny muted">Остаток на счёте после такта. Текущий такт обновляется сам: доходы уже учтены, расходы на мощности — те, что спишутся в конце.</p>
+    <div className="results-wrap">
+      <table className="results">
+        <thead>
+          <tr>
+            <th rowSpan={2} className="results-place-h" aria-label="Место" />
+            <th rowSpan={2} className="results-company">Компания</th>
+            {data.tacts.map((t, i) => (
+              <th key={t.number} colSpan={3} className={`results-tact${i === current ? ' current' : ''}`}>
+                {t.number} такт <small>{t.extra ? 'доп. · ' : ''}{STATUS[t.status]}</small>
+              </th>
+            ))}
+          </tr>
+          <tr>
+            {data.tacts.map((t, i) => (
+              <Fragment key={t.number}>
+                <th className={`results-sub${i === current ? ' current' : ''}`}>Доход</th>
+                <th className={`results-sub${i === current ? ' current' : ''}`}>Затраты</th>
+                <th className={`results-sub total${i === current ? ' current' : ''}`}>Итог</th>
+              </Fragment>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, place) => (
+            <tr key={r.accountId}>
+              <td><span className={`results-place${place === 0 ? ' first' : ''}`} aria-label={`${place + 1} место`}>{place + 1}</span></td>
+              <td className="results-company">
+                <strong>{r.title}</strong>
+                {r.owner && r.owner !== r.title && <small>{r.owner}</small>}
+              </td>
+              {r.values.map((v, i) => {
+                const cur = i === current ? ' current' : '';
+                if (!v) return <td key={i} colSpan={3} className={`results-empty${cur}`}>—</td>;
+                return (
+                  <Fragment key={i}>
+                    <td className={`results-num ${v.income ? 'income' : 'zero'}${cur}`}>{v.income ? `+${money(v.income)}` : '0'}</td>
+                    <td className={`results-num ${v.expenses ? 'expenses' : 'zero'}${cur}`}>{v.expenses ? `−${money(v.expenses)}` : '0'}</td>
+                    <td className={`results-num total${cur}${v.total < 0 ? ' negative' : ''}`}>{money(v.total)}</td>
+                  </Fragment>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="tiny muted">Итог — остаток на счёте после такта. Доходы и затраты начисляются на счёт, когда такт заканчивается; текущий такт показан таким, каким он будет.</p>
     </div>
   );
 }

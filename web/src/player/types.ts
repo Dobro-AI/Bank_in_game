@@ -6,6 +6,8 @@ export interface PriceItem { id: number; title: string; price: number }
 export interface Operation {
   id: number; created_at: string; tact: number; kind: string; amount: number; comment: string;
   from_account_id: number; from_title: string; to_account_id: number; to_title: string; initiator: string;
+  /** Income or expenses of a tact posted by the bank when the tact ends. */
+  posting?: boolean;
 }
 
 export const canSpend = (a: Account) => a.member === 'owner' || a.pinOk;

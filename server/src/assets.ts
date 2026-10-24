@@ -160,7 +160,7 @@ export async function postTact(db: Db, gameId: number, staffId: number | null, k
       if (diff === 0) continue;
       // Revenue goes host → company, OPEX company → host; a negative difference goes the other way.
       const toCompany = (kind === 'revenue') === diff > 0;
-      const label = kind === 'revenue' ? `Выручка за такт ${open.number}` : `OPEX за такт ${open.number}`;
+      const label = kind === 'revenue' ? `Доход за такт ${open.number}` : `Затраты за такт ${open.number}`;
       const details = kind === 'revenue' ? r.revenueText : r.opexText;
       const t = await transferTx(tx, {
         gameId, kind: toCompany ? 'host_credit' : 'host_debit',
@@ -278,8 +278,8 @@ export async function ageAssets(tx: Tx, gameId: number, closed: { number: number
 }
 
 /**
- * "Итоги тактов": every company's balance after each tact — column E of "Счета". A finished tact
- * is its snapshot; the current one is live (income credited, expenses still to be subtracted).
+ * "Итоги тактов": per company and tact — income, expenses and the balance after the tact (column E of
+ * "Счета"). A finished tact is its snapshot; the current one is live, as it will be when the tact ends.
  */
 export async function tactResults(db: Db, gameId: number) {
   const all = await listTacts(db, gameId);
@@ -287,17 +287,20 @@ export async function tactResults(db: Db, gameId: number) {
   const legal = accounts.filter((a) => a.kind === 'legal');
   const companies = legal.length ? legal : accounts;
   const members = await membersByAccount(db, gameId);
-  const values = new Map<number, (number | null)[]>(companies.map((a) => [a.id, []]));
+  type Cell = { income: number; expenses: number; total: number } | null;
+  const values = new Map<number, Cell[]>(companies.map((a) => [a.id, []]));
   for (const t of all) {
+    const cap = new Map((await capacityTable(db, gameId, t.id)).rows.map((r) => [r.accountId, r]));
     const ends = new Map<number, number>();
     if (t.closed_at) {
       for (const s of await db.query('select account_id, balance_end from tact_snapshot where tact_id = $1', [t.id])) ends.set(s.account_id, Number(s.balance_end));
     } else {
-      for (const r of (await capacityTable(db, gameId, t.id)).rows) {
-        ends.set(r.accountId, r.balance + (r.revenue - (r.postedRevenue ?? 0)) - (r.opex - (r.postedOpex ?? 0)));
-      }
+      for (const r of cap.values()) ends.set(r.accountId, r.balance + (r.revenue - (r.postedRevenue ?? 0)) - (r.opex - (r.postedOpex ?? 0)));
     }
-    for (const a of companies) values.get(a.id)!.push(ends.get(a.id) ?? null);
+    for (const a of companies) {
+      const r = cap.get(a.id);
+      values.get(a.id)!.push(ends.has(a.id) ? { income: r?.revenue ?? 0, expenses: r?.opex ?? 0, total: ends.get(a.id)! } : null);
+    }
   }
   const planned = Math.max(PLANNED_TACTS, all.length);
   return {

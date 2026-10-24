@@ -284,7 +284,7 @@ async function accountsSheet(db: Db, gameId: number, title: string, cap: Awaited
   const cells: Spec[][] = [pad([
     { ...BLACK, v: title, wrap: true },
     { v: 'На начало такта', bold: true, wrap: true, bg: PEACH },
-    { v: 'Доходы', bold: true, wrap: true, bg: INCOME, note: 'Вписывает игротехник в банке (раздел «Счета»), сразу попадает на счёт' },
+    { v: 'Доходы', bold: true, wrap: true, bg: INCOME, note: 'Вписывает игротехник в банке (раздел «Счета»). Начисляется на счёт при завершении такта' },
     { v: 'Расходы', bold: true, wrap: true, bg: COST_SUM, note: 'Из вкладки «Мощности»: количество × расход на 1 шт. Списываются при завершении такта' },
     { v: 'Остаток на счету', bold: true, wrap: true, bg: PEACH, edge: true },
     { v: 'Переводы: + пришло, − ушло (от кого и за что — в примечании к ячейке)', bold: true, bg: PEACH, align: 'LEFT' },

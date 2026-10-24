@@ -66,7 +66,7 @@ export function Money({ ctx }: { ctx: Ctx }) {
       <div className="row between" style={{ marginBottom: 12 }}>
         {picker}
         <span className="small muted">
-          {open ? 'Доходы сразу попадают на счёт. Расходы на мощности спишутся, когда такт закончат во вкладке «Такт».' : 'Такт завершён: суммы зафиксированы.'}
+          {open ? 'Доходы начислятся, а расходы на мощности спишутся, когда такт закончат во вкладке «Такт».' : 'Такт завершён: суммы зафиксированы.'}
         </span>
       </div>
       <div className="table-wrap">
@@ -86,7 +86,7 @@ export function Money({ ctx }: { ctx: Ctx }) {
                   <td><strong>{r.title}</strong><div className="tiny muted">{r.owner}</div></td>
                   <td className="num"><Amount value={start(r)} /></td>
                   <td className="num">
-                    {editable ? <Earned ctx={ctx} tactId={tact.id} row={r} onSaved={() => { reload(); ctx.reload(); }} /> : <Amount value={r.revenue} />}
+                    {editable ? <Earned ctx={ctx} tactId={tact.id} row={r} onSaved={reload} /> : <Amount value={r.revenue} />}
                     {r.revenue !== r.earned && <div className="tiny muted formula">+ с мощностей {money(r.revenue - r.earned)}</div>}
                   </td>
                   <td className="num">
@@ -254,7 +254,7 @@ function BalanceInput({ ctx, accountId, title, value, onSaved }: { ctx: Ctx; acc
   );
 }
 
-/** Income of the company this tact, typed by the host; saved on leaving the field and credited at once. */
+/** Income of the company this tact, typed by the host; saved on leaving the field, credited when the tact ends. */
 function Earned({ ctx, tactId, row, onSaved }: { ctx: Ctx; tactId: number; row: CapRow; onSaved: () => void }) {
   const [v, setV] = useState(row.earned ? String(row.earned) : '');
   const [error, setError] = useState<string>();

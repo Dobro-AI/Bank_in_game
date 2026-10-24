@@ -764,11 +764,10 @@ export function buildApp(
 
   app.put('/api/admin/games/:id/capacity/output', async (req) => {
     const id = Number((req.params as any).id);
-    const { staff } = await needGame(req, id, 'run');
+    await needGame(req, id, 'run');
     const b = req.body as any;
+    // Income and expenses both reach the balances when the tact ends ("Закончить такт").
     await assets.setOutput(db, id, { tactId: Number(b.tactId), accountId: Number(b.accountId), code: String(b.code), amount: b.amount });
-    // Income typed into "Счета" reaches the balances at once; expenses wait for the end of the tact.
-    if (String(b.code) === assets.EARNED) await assets.postTact(db, id, staff.id, 'revenue');
     changed(id);
     return { ok: true };
   });

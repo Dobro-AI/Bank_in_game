@@ -140,11 +140,11 @@ describe('итоги тактов', () => {
     const before = await assets.tactResults(db, branchId);
     expect(before.tacts.map((t) => t.status)).toEqual(['running', 'future', 'future']);
     const ivi = () => before.rows.find((r) => r.title === 'IVI')!;
-    expect(ivi().values).toEqual([100 - 20, null, null]);
+    expect(ivi().values).toEqual([{ income: 0, expenses: 20, total: 100 - 20 }, null, null]);
     await assets.finishTact(db, branchId, staffId);
     const after = await assets.tactResults(db, branchId);
     expect(after.tacts.map((t) => t.status)).toEqual(['closed', 'waiting', 'future']);
-    expect(after.rows.find((r) => r.title === 'IVI')!.values.slice(0, 2)).toEqual([80, 60]);
+    expect(after.rows.find((r) => r.title === 'IVI')!.values.slice(0, 2).map((v) => v?.total)).toEqual([80, 60]);
   });
 });
 
