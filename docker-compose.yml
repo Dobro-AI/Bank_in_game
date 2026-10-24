@@ -1,0 +1,65 @@
+# Production: PostgreSQL + bank + Caddy (https). Everything restarts on crash and after reboot;
+# autoheal also restarts the bank if it stops answering (hung, not crashed).
+#   cp .env.example .env  &&  put keys into ./secrets  &&  docker compose up -d --build
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bank
+      POSTGRES_USER: bank
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bank -d bank"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://bank:${DB_PASSWORD}@db:5432/bank
+      GOOGLE_SERVICE_ACCOUNT_FILE: /run/secrets/bank/google-service-account.json
+      GOOGLE_OAUTH_CLIENT_FILE: /run/secrets/bank/google-oauth-client.json
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/bank/telegram-bot-token
+      TELEGRAM_HOST_BOT_TOKEN_FILE: /run/secrets/bank/telegram-host-bot-token
+    volumes:
+      - ${SECRETS_DIR:-./secrets}:/run/secrets/bank:ro
+    labels:
+      autoheal: "true"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
