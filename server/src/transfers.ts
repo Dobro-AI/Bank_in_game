@@ -1,4 +1,8 @@
+import { EventEmitter } from 'node:events';
 import { AppError, Db, Tx, isUniqueViolation } from './db.js';
+
+/** Committed transfers ('transfer', row): the Telegram bot listens to notify recipients. */
+export const transferEvents = new EventEmitter().setMaxListeners(0);
 
 export type TransferKind = 'player' | 'to_host' | 'fixed_price' | 'host_credit' | 'host_debit' | 'initial';
 
@@ -86,6 +90,7 @@ export async function transfer(
       if (after) await after(tx, row);
       return row;
     });
+    transferEvents.emit('transfer', row);
     return { transfer: row, duplicate: false };
   } catch (e) {
     if (key && isUniqueViolation(e)) {

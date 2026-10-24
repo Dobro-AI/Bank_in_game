@@ -11,8 +11,8 @@
 
 ## Статус
 
-Этап 1 готов: сервер, база, веб-кабинеты игрока, ведущего и Супер-ведущего, такты, выгрузка в Excel.
-Дальше: Telegram-бот и Mini App (этап 2), синхронизация с Google Sheets (этап 3).
+Готово: сервер, база, веб-кабинеты игрока, ведущего и Супер-ведущего, такты, учёт мощностей, Excel и Google-таблицы,
+ИИ-помощник ведущего, Telegram-бот для игроков и Mini App (Mini App работает после размещения на https-адресе).
 Архитектура, модель данных и согласованные правила — в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Стек
@@ -51,6 +51,7 @@ DATABASE_URL=postgres://... SUPER_LOGIN=... SUPER_PASSWORD=... SECURE_COOKIES=1 
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | ключ технического аккаунта Google (содержимое JSON-файла) для живой Google-таблицы; или путь к файлу в `GOOGLE_SERVICE_ACCOUNT_FILE` |
 | `GOOGLE_OAUTH_CLIENT_FILE` | JSON OAuth-клиента Google (тип «Web application») для «Войти через Google»: банк создаёт таблицы в Диске Супер-ведущего; или `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` |
 | `PUBLIC_URL` | адрес сайта для возврата после входа через Google, например `https://bank.example.ru` |
+| `TELEGRAM_BOT_TOKEN` | токен Telegram-бота для игроков (или путь к файлу в `TELEGRAM_BOT_TOKEN_FILE`); Mini App открывается кнопкой «Банк», если `PUBLIC_URL` — https |
 
 ## Готовые игры
 
@@ -113,3 +114,14 @@ npm run seed:games -- --docs ../docs/games   # пересобрать докум
 2. «Clients» → «Create client» → «Web application» → «Authorized redirect URIs»: `<адрес сайта>/api/admin/google/callback` (локально — `http://localhost:3001/api/admin/google/callback` и `http://localhost:3000/api/admin/google/callback`).
 3. Скачайте JSON клиента в `secrets/google-oauth-client.json` и перезапустите сервер.
 4. В кабинете Супер-ведущего → «Google-таблица» → «Войти через Google». На экране «Google не проверил приложение» → «Дополнительно» → «Перейти». Дальше кнопка «Создать таблицу в папке» создаёт таблицу сама.
+
+## Telegram-бот для игроков
+
+Бот работает в том же процессе, что и сервер (long polling), и вызывает те же функции перевода.
+- `/start` — выбор игры и роли, имя и фамилия, код роли от ведущего. Telegram привязывается к игроку.
+- Кнопки меню: «Баланс», «Перевести» (счёт → получатель → сумма → комментарий → подтверждение), «Оплатить по прайсу» (позиция × количество), «История», «Выйти из игры».
+- Уведомления: поступления на счета игрока, списания игротехника (OPEX, штрафы) и оплаты по прайсу.
+- Команды, описание и кнопка меню настраиваются при запуске сервера.
+- Mini App: тот же кабинет игрока; внутри Telegram вход происходит сам по подписи Telegram (`/api/telegram/webapp-login`).
+  Нужен публичный https-адрес в `PUBLIC_URL` — тогда у бота появляется кнопка «Банк».
+- Совладелец юрлица вводит PIN в веб-кабинете или Mini App; в чате бота PIN не спрашивается.

@@ -1,6 +1,6 @@
 import { AppError, Db, Tx } from './db.js';
 import { membersByAccount, ownersText, tacts as listTacts } from './reports.js';
-import { hostAccountId, transferTx } from './transfers.js';
+import { hostAccountId, transferEvents, transferTx } from './transfers.js';
 
 /**
  * Assets and capacities: servers, venues, trucks, staff... Holdings are the sum of ledger rows.
@@ -136,7 +136,8 @@ export async function setOutput(db: Db, gameId: number, body: { tactId: number; 
  */
 export async function postTact(db: Db, gameId: number, staffId: number, kind: 'revenue' | 'opex') {
   if (kind !== 'revenue' && kind !== 'opex') throw new AppError('Неизвестная операция');
-  return db.transaction(async (tx) => {
+  const made: any[] = [];
+  const res = await db.transaction(async (tx) => {
     const [open] = await tx.query('select * from tact where game_id = $1 and closed_at is null for update', [gameId]);
     if (!open) throw new AppError('Нет открытого такта');
     const { rows } = await capacityTable(tx, gameId, open.id);
@@ -160,11 +161,14 @@ export async function postTact(db: Db, gameId: number, staffId: number, kind: 'r
         'insert into tact_posting (tact_id, account_id, kind, amount, transfer_id) values ($1, $2, $3, $4, $5)',
         [open.id, r.accountId, kind, amount, t.id],
       );
+      made.push(t);
       count++;
       total += amount;
     }
     return { count, total, tact: open.number };
   });
+  for (const t of made) transferEvents.emit('transfer', t);
+  return res;
 }
 
 // ---------- Ledger: the host's manual edits ----------

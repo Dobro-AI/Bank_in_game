@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useLoad } from '../api';
 import { Empty, ErrorText, Field } from '../ui';
+import { telegramInitData } from './telegram';
 
 interface Game { id: number; title: string; hosts: string }
 interface Role { id: number; title: string; description: string; presetFirstName: string; presetLastName: string; taken: boolean }
@@ -75,7 +76,7 @@ function RoleForm({ game, role, onBack, onJoined }: { game: Game; role: Role; on
     setBusy(true);
     setError(undefined);
     try {
-      await api('/api/player/join', { body: { gameId: game.id, roleId: role.id, firstName, lastName, code } });
+      await api('/api/player/join', { body: { gameId: game.id, roleId: role.id, firstName, lastName, code, initData: telegramInitData() } });
       onJoined();
     } catch (err: any) {
       setError(err.message);

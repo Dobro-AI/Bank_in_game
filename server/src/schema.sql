@@ -256,3 +256,11 @@ alter table game add column if not exists sheet_error text not null default '';
 -- Instance-wide settings (e.g. the Google Drive folder for game spreadsheets).
 create table if not exists app_setting (key text primary key, value text not null default '');
 alter table game add column if not exists drive_folder_id text not null default '';
+
+-- Telegram users linked to players (bot and Mini App). The latest link is the active game.
+create table if not exists telegram_link (
+  telegram_id bigint not null,
+  player_id int not null references player(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (telegram_id, player_id)
+);

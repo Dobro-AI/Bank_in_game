@@ -13,6 +13,7 @@ import * as reports from './reports.js';
 import { AttemptLimiter, hashSecret, newToken, tokenHash, verifySecret } from './security.js';
 import * as googleUser from './google-user.js';
 import * as sheets from './sheets.js';
+import * as telegram from './telegram.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
 import { hostAdjust, payFixedPrice, playerTransfer } from './transfers.js';
 
@@ -190,8 +191,22 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
       gameId: Number(b.gameId), roleId: Number(b.roleId), firstName: b.firstName, lastName: b.lastName, code: String(b.code ?? ''),
     });
     await startSession(reply, PLAYER_COOKIE, { playerId: player.id });
+    // Joined from the Telegram Mini App: link the Telegram user too, so the bot knows them.
+    const tg = b.initData && telegram.botToken() ? telegram.validateInitData(String(b.initData), telegram.botToken()) : null;
+    if (tg) await telegram.linkTelegram(db, tg.id, player.id);
     changed(player.game_id);
     return { ok: true };
+  });
+
+  /** Mini App opened inside Telegram: a linked Telegram user gets a player session at once. */
+  app.post('/api/telegram/webapp-login', async (req, reply) => {
+    const token = telegram.botToken();
+    const user = token ? telegram.validateInitData(String((req.body as any)?.initData ?? ''), token) : null;
+    if (!user) throw new AppError('Не удалось проверить вход из Telegram', 401);
+    const p = await telegram.playerOfTelegram(db, user.id);
+    if (!p) return { linked: false };
+    await startSession(reply, PLAYER_COOKIE, { playerId: p.playerId });
+    return { linked: true };
   });
 
   // ---------- Live updates (SSE) ----------
