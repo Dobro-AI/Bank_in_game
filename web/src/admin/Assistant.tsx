@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api, useLoad } from '../api';
+import { CloseIcon, ImageAddIcon, MicIcon, SendIcon } from '../icons';
 import { ErrorText, Money } from '../ui';
 import type { Ctx } from './GamePage';
 
@@ -13,10 +14,11 @@ interface ThreadView { threadId: number; messages: ChatMessage[]; proposals: Pro
 const KIND: Record<string, string> = { transfer: 'Перевод', host_credit: 'Начисление', host_debit: 'Списание', fixed_price: 'Оплата по прайсу' };
 const STATUS: Record<string, string> = { done: 'Проведено', rejected: 'Отклонено' };
 const SUGGESTIONS = [
-  'Сколько денег сейчас у каждой роли?',
-  'Покажи самые крупные переводы за текущий такт',
-  'Какие цены в прайсе и что говорят правила про налоги?',
-  'Предложи, как ввести в игру страхование: capex, opex и эффект',
+  'Сколько денег у каждой роли?',
+  'Самые крупные переводы за такт',
+  'Кто больше всех заработал?',
+  'Что в прайсе и правилах про налоги?',
+  'Придумай страхование: capex, opex, эффект',
 ];
 
 const SpeechRecognitionCtor: any = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
@@ -55,10 +57,17 @@ export function Assistant({ ctx }: { ctx: Ctx }) {
   const recorder = useRef<MediaRecorder | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
-  const audioInput = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { if (view.data) setData(view.data); }, [view.data]);
   useEffect(() => { bottom.current?.scrollIntoView({ block: 'end' }); }, [data?.messages.length, data?.proposals.length, busy]);
+  // The message field grows with the text, up to a few lines.
+  useEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [text]);
 
   async function send(e?: FormEvent, preset?: string) {
     e?.preventDefault();
@@ -152,11 +161,6 @@ export function Assistant({ ctx }: { ctx: Ctx }) {
     }
   }
 
-  async function newChat() {
-    const v = await api<ThreadView>(`/api/admin/games/${ctx.id}/assistant/new`, { body: {} });
-    setData(v);
-  }
-
   if (!data) return <ErrorText error={view.error} />;
   // Messages and proposal cards in one timeline.
   const timeline = [
@@ -164,21 +168,20 @@ export function Assistant({ ctx }: { ctx: Ctx }) {
     ...data.proposals.map((p) => ({ at: (p as any).created_at ?? '', key: `p${p.id}`, p })),
   ];
 
+  // Dictation in the browser when it can, otherwise a voice note transcribed on the server.
+  const mic = SpeechRecognitionCtor
+    ? { on: listening, toggle: toggleDictation, label: listening ? 'Остановить диктовку' : 'Диктовать' }
+    : data.transcription
+      ? { on: recording, toggle: toggleRecording, label: recording ? 'Остановить запись' : 'Записать голосовое' }
+      : null;
+
   return (
     <section className="assistant">
-      <div className="row between">
-        <p className="small muted" style={{ margin: 0 }}>Чат виден только вам. Помощник читает данные игры, но двигает деньги только после вашего подтверждения.</p>
-        <button className="btn small" onClick={newChat} disabled={busy}>Новый чат</button>
-      </div>
+      <p className="small muted" style={{ margin: 0 }}>Помощник читает данные игры, но двигает деньги только после вашего подтверждения.</p>
 
       <div className="chat" aria-live="polite">
         {timeline.length === 0 && (
-          <div className="stack">
-            <p className="muted">Сфотографируйте бумажку с переводом, спросите про балансы и переводы или попросите придумать механику.</p>
-            <div className="chips">
-              {SUGGESTIONS.map((s) => <button key={s} className="chip-toggle" onClick={() => send(undefined, s)} disabled={busy}>{s}</button>)}
-            </div>
-          </div>
+          <p className="muted">Сфотографируйте бумажку с переводом, спросите про балансы и переводы или попросите придумать механику.</p>
         )}
         {timeline.map((item) => 'm' in item && item.m ? (
           <div key={item.key} className={`bubble ${item.m.role}`}>
@@ -194,35 +197,29 @@ export function Assistant({ ctx }: { ctx: Ctx }) {
 
       <ErrorText error={error} />
       {note && <p className="small muted">{note}</p>}
-      {image && (
-        <div className="row">
-          <img src={image.preview} alt="Фото для помощника" className="thumb" />
-          <button className="btn small" onClick={() => setImage(undefined)}>Убрать фото</button>
-        </div>
-      )}
+
+      <div className="hints" role="list" aria-label="Подсказки">
+        {SUGGESTIONS.map((s) => (
+          <button key={s} role="listitem" className="hint" onClick={() => send(undefined, s)} disabled={busy}>{s}</button>
+        ))}
+      </div>
       <form className="composer" onSubmit={send}>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Сообщение помощнику"
-          aria-label="Сообщение помощнику" rows={2}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
-        <div className="row">
-          <button type="button" className="btn small" onClick={() => photoInput.current?.click()}>Фото</button>
+        {image && (
+          <div className="composer-photo">
+            <img src={image.preview} alt="Фото для помощника" className="thumb" />
+            <button type="button" className="composer-photo-remove" aria-label="Убрать фото" onClick={() => setImage(undefined)}><CloseIcon /></button>
+          </div>
+        )}
+        <div className="composer-bar">
+          <button type="button" className="icon-btn" aria-label="Прикрепить фото" onClick={() => photoInput.current?.click()}><ImageAddIcon /></button>
           <input ref={photoInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { onPhoto(e.target.files?.[0]); e.target.value = ''; }} />
-          {SpeechRecognitionCtor && (
-            <button type="button" className="btn small" aria-pressed={listening} onClick={toggleDictation}>{listening ? 'Остановить диктовку' : 'Диктовать'}</button>
+          <textarea ref={input} value={text} onChange={(e) => setText(e.target.value)} placeholder="Написать сообщение…"
+            aria-label="Сообщение помощнику" rows={1}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
+          {mic && (
+            <button type="button" className="icon-btn" aria-label={mic.label} title={mic.label} aria-pressed={mic.on} onClick={mic.toggle}><MicIcon /></button>
           )}
-          {data.transcription && (
-            <>
-              <button type="button" className="btn small" aria-pressed={recording} onClick={toggleRecording}>{recording ? 'Остановить запись' : 'Записать голосовое'}</button>
-              <button type="button" className="btn small" onClick={() => audioInput.current?.click()}>Аудиофайл</button>
-              <input ref={audioInput} type="file" accept="audio/*" hidden onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) transcribeBlob(f, f.name);
-                e.target.value = '';
-              }} />
-            </>
-          )}
-          <span className="grow" />
-          <button className="btn primary" disabled={busy || (!text.trim() && !image)}>Отправить</button>
+          <button className="send-btn" aria-label="Отправить" disabled={busy || (!text.trim() && !image)}><SendIcon /></button>
         </div>
       </form>
     </section>

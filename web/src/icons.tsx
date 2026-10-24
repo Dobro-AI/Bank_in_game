@@ -28,3 +28,7 @@ export const LogoutIcon = () => <Svg><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1
 export const BoxIcon = () => <Svg><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" /><path d="M3 7.5 12 12l9-4.5M12 12v9" /></Svg>;
 export const TableIcon = () => <Svg><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M3 14.5h18M9 9v11" /></Svg>;
 export const KeyIcon = () => <Svg><circle cx="8" cy="15" r="4" /><path d="m11 12 9-9M17 6l3 3M15 8l2 2" /></Svg>;
+export const ImageAddIcon = () => <Svg><path d="M20 12.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6.5" /><circle cx="9" cy="9.5" r="1.5" /><path d="m4 17 4.5-4.5L13 17l2.5-2.5L20 19M18 3v6M15 6h6" /></Svg>;
+export const MicIcon = () => <Svg><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" /></Svg>;
+export const SendIcon = () => <Svg><path d="M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5z" /></Svg>;
+export const CloseIcon = () => <Svg><path d="M6 6l12 12M18 6 6 18" /></Svg>;

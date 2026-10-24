@@ -847,13 +847,6 @@ export function buildApp(
     return { ...(await assistant.threadView(db, thread.id)), transcription: transcriptionEnabled() };
   });
 
-  app.post('/api/admin/games/:id/assistant/new', async (req) => {
-    const id = Number((req.params as any).id);
-    const { staff } = await needAssistant(req, id);
-    const thread = await assistant.newThread(db, id, staff.id);
-    return { ...(await assistant.threadView(db, thread.id)), transcription: transcriptionEnabled() };
-  });
-
   app.post('/api/admin/games/:id/assistant/messages', async (req) => {
     const id = Number((req.params as any).id);
     const { staff } = await needAssistant(req, id);

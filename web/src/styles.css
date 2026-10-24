@@ -153,6 +153,45 @@ tfoot td { font-weight: 650; background: #fafafa; }
 .bubble.user { align-self: flex-end; background: var(--accent-soft); }
 .bubble.assistant { align-self: flex-start; background: #f3f4f6; }
 .proposal { align-self: flex-start; width: min(420px, 100%); border-color: var(--accent); }
-.composer { display: flex; flex-direction: column; gap: 8px; }
-.thumb { width: 72px; height: 72px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--line); }
 .btn[aria-pressed='true'] { border-color: var(--danger); color: var(--danger); }
+
+/* Hints scroll sideways above the message bar. */
+.hints {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin-bottom: -4px; padding-right: 24px;
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.hints::-webkit-scrollbar { display: none; }
+.hint {
+  flex-shrink: 0; white-space: nowrap; min-height: 36px; padding: 0 16px; border-radius: 999px;
+  border: 1px solid #d1d5db; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; font-weight: 550; cursor: pointer;
+}
+.hint:hover:not(:disabled) { background: #f3f4f6; }
+.hint:disabled { opacity: 0.5; cursor: default; }
+
+/* Message bar: photo, text, microphone and a round send button in one rounded field. */
+.composer { display: flex; flex-direction: column; gap: 8px; }
+.composer-bar {
+  display: flex; align-items: flex-end; gap: 4px; padding: 4px; border: 1px solid #d1d5db; border-radius: 24px; background: var(--surface);
+}
+.composer-bar:focus-within { border-color: var(--text); }
+.composer .composer-bar textarea {
+  flex: 1; min-height: 44px; max-height: 160px; padding: 10px 4px; border: none; border-radius: 0; background: transparent;
+  font-size: 15px; resize: none; outline: none;
+}
+.icon-btn, .send-btn {
+  flex-shrink: 0; display: grid; place-items: center; width: 44px; height: 44px; border: none; border-radius: 999px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.icon-btn:hover { background: #f3f4f6; color: var(--text); }
+.icon-btn[aria-pressed='true'] { background: #fee2e2; color: var(--danger); }
+.send-btn { background: var(--text); color: #fff; }
+.send-btn svg { width: 20px; height: 20px; margin: 2px 2px 0 0; }
+.send-btn:disabled { opacity: 0.3; cursor: default; }
+.icon-btn:focus-visible, .send-btn:focus-visible, .hint:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.composer-photo { position: relative; align-self: flex-start; }
+.thumb { width: 72px; height: 72px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--line); }
+.composer-photo-remove {
+  position: absolute; top: -8px; right: -8px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 2px solid var(--surface); border-radius: 999px; background: var(--text); color: #fff; cursor: pointer;
+}
+.composer-photo-remove svg { width: 14px; height: 14px; }

@@ -254,11 +254,6 @@ export async function currentThread(db: Db, gameId: number, staffId: number) {
   return created;
 }
 
-export async function newThread(db: Db, gameId: number, staffId: number) {
-  const [t] = await db.query('insert into assistant_thread (game_id, staff_id) values ($1, $2) returning *', [gameId, staffId]);
-  return t;
-}
-
 export async function threadView(db: Db, threadId: number) {
   const messages = await db.query(
     'select id, role, text, has_image as "hasImage", created_at from assistant_message where thread_id = $1 and visible order by id',
