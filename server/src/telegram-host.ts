@@ -468,6 +468,11 @@ export async function startHostBot(db: Db) {
       'Бот для ведущих (игротехников) игрового банка.\n\nПодключается из кабинета ведущего кнопкой «Подключить Telegram». ' +
       'Сводка, переводы, начисления и списания, завершение такта, выручка и OPEX, ИИ-помощник: фото платёжки → операция на подтверждение.',
     );
+    // The host cabinet as a Mini App (Telegram opens web apps only over HTTPS).
+    const base = process.env.PUBLIC_URL?.replace(/\/$/, '');
+    await bot.api.setChatMenuButton({
+      menu_button: base?.startsWith('https://') ? { type: 'web_app', text: 'Кабинет', web_app: { url: `${base}/admin` } } : { type: 'commands' },
+    });
   } catch (e: any) {
     console.error('telegram host configure', e?.description ?? e);
   }

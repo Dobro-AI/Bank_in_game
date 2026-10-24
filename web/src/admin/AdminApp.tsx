@@ -1,6 +1,7 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { Link, Route, Routes, useNavigate } from 'react-router-dom';
 import { api, useLoad } from '../api';
+import { telegramLogin } from '../telegram';
 import { Empty, ErrorText, Field } from '../ui';
 import { BadgeIcon, GridIcon } from '../icons';
 import { GamePage } from './GamePage';
@@ -10,7 +11,8 @@ import { TelegramLink } from './TelegramLink';
 export interface Staff { id: number; name: string; login: string; kind: 'super' | 'host' }
 
 export function AdminApp() {
-  const me = useLoad(() => api<{ staff: Staff | null }>('/api/me'), []);
+  // Opened from the host bot's Mini App: a linked Telegram logs the host in.
+  const me = useLoad(async () => { await telegramLogin('host'); return api<{ staff: Staff | null }>('/api/me'); }, []);
   if (!me.data) return <main className="page narrow"><ErrorText error={me.error} /></main>;
   const staff = me.data.staff;
   if (!staff) return <div className="bank"><Login onDone={me.reload} /></div>;

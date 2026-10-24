@@ -5,14 +5,14 @@ import { AccountPage, ConnectByPin, NewLegal } from './Accounts';
 import { History, OperationRow } from './History';
 import { BuildingIcon, ChevronIcon, HistoryIcon, HomeIcon, MoreIcon, PlusIcon, TransferIcon } from '../icons';
 import { Join } from './Join';
-import { telegramLogin } from './telegram';
+import { telegramLogin } from '../telegram';
 import { ScreenHeader } from './Screen';
 import { AmountPage, RecipientPicker } from './Transfer';
 import { Account, Me, Operation, canSpend } from './types';
 
 export function PlayerApp() {
   // Inside Telegram, log in by the Mini App data first; elsewhere this does nothing.
-  const me = useLoad(async () => { await telegramLogin(); return api<{ player: Me | null }>('/api/me'); }, []);
+  const me = useLoad(async () => { await telegramLogin('player'); return api<{ player: Me | null }>('/api/me'); }, []);
   if (!me.data) return <main className="page narrow"><ErrorText error={me.error} /></main>;
   if (!me.data.player) return <div className="bank"><Join onJoined={me.reload} /></div>;
   return <Bank me={me.data.player} onLogout={me.reload} />;

@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, useLoad } from '../api';
 import { Empty, ErrorText, Field } from '../ui';
-import { telegramInitData } from './telegram';
+import { telegramInitData } from '../telegram';
 
 interface Game { id: number; title: string; hosts: string }
 interface Role { id: number; title: string; description: string; presetFirstName: string; presetLastName: string; taken: boolean }

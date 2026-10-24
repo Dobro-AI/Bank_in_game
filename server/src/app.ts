@@ -199,6 +199,17 @@ export function buildApp(db: Db, opts: { webDist?: string; secureCookies?: boole
     return { ok: true };
   });
 
+  /** Host bot's Mini App: the linked host gets a staff session (same cabinet as on the web). */
+  app.post('/api/telegram/host-webapp-login', async (req, reply) => {
+    const token = hostBot.hostBotToken();
+    const user = token ? telegram.validateInitData(String((req.body as any)?.initData ?? ''), token) : null;
+    if (!user) throw new AppError('Не удалось проверить вход из Telegram', 401);
+    const s = await hostBot.staffOfTelegram(db, user.id);
+    if (!s) return { linked: false };
+    await startSession(reply, STAFF_COOKIE, { staffId: s.staffId });
+    return { linked: true };
+  });
+
   /** Mini App opened inside Telegram: a linked Telegram user gets a player session at once. */
   app.post('/api/telegram/webapp-login', async (req, reply) => {
     const token = telegram.botToken();
