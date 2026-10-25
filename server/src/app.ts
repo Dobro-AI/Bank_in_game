@@ -767,6 +767,12 @@ export function buildApp(
     return assets.tactResults(db, p.gameId);
   });
 
+  /** The player's companies: quantity, expenses and capacity of every asset in the current tact. */
+  app.get('/api/player/capacity', async (req) => {
+    const p = await needPlayer(req);
+    return assets.playerCapacity(db, p.gameId, p.roleId);
+  });
+
   // ---------- Assets, capacities, revenue and OPEX per tact ----------
 
   app.get('/api/admin/games/:id/capacity', async (req) => {

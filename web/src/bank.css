@@ -402,3 +402,20 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .round-plus:hover { background: var(--bg); }
 .round-plus:active { transform: scale(0.95); }
 .tact-now-clock-box { flex-direction: row; align-items: center; gap: 12px; }
+
+/* Player's "Мощности": a card per company — quantity, expenses (red), capacity (green). */
+.cap-card { background: var(--surface); border-radius: 16px; padding: 16px; margin-bottom: 12px; }
+.cap-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.cap-head strong { font-size: 18px; }
+.cap-total { font-size: 14px; color: var(--muted); }
+.cap-total b { color: #b91c1c; font-size: 16px; }
+.bank table.cap-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.bank table.cap-table { table-layout: fixed; }
+.cap-table th { font-size: 12px; font-weight: 600; color: var(--muted); text-align: right; padding: 6px 4px; background: none; text-transform: none; letter-spacing: 0; }
+.cap-table th:first-child { width: 42%; }
+.cap-table th:first-child, .cap-table td:first-child { text-align: left; }
+.cap-table td { padding: 10px 4px; border-top: 1px solid var(--line); font-size: 15px; }
+.cap-table td.num { text-align: right; overflow-wrap: break-word; hyphens: auto; }
+.cap-table td.power small { display: block; font-size: 12px; font-weight: 400; }
+.cap-table td.expenses { color: #b91c1c; }
+.cap-table td.power { color: #047857; font-weight: 600; }

@@ -3,8 +3,9 @@ import { Link, NavLink, Route, Routes } from 'react-router-dom';
 import { ACCOUNT_KIND, api, useLive, useLoad } from '../api';
 import { ErrorText, Money } from '../ui';
 import { AccountPage, ConnectByPin, NewLegal } from './Accounts';
+import { PlayerCapacity } from './Capacity';
 import { History, OperationRow } from './History';
-import { BuildingIcon, ChartIcon, ChevronIcon, HistoryIcon, HomeIcon, MoreIcon, PlusIcon, TransferIcon } from '../icons';
+import { BoxIcon, BuildingIcon, ChartIcon, ChevronIcon, HistoryIcon, HomeIcon, MoreIcon, PlusIcon, TransferIcon } from '../icons';
 import { Join } from './Join';
 import { ResultsBoard, type Results } from '../Results';
 import { TactClock, TactTimer } from '../TactTimer';
@@ -25,6 +26,7 @@ const NAV = [
   { to: '/play', label: 'Главная', icon: <HomeIcon />, end: true },
   { to: '/play/transfer', label: 'Переводы', icon: <TransferIcon /> },
   { to: '/play/history', label: 'История', icon: <HistoryIcon /> },
+  { to: '/play/capacity', label: 'Мощности', icon: <BoxIcon /> },
   { to: '/play/results', label: 'Итоги', icon: <ChartIcon /> },
   { to: '/play/more', label: 'Ещё', icon: <MoreIcon /> },
 ];
@@ -77,6 +79,7 @@ function Bank({ me, onLogout }: { me: Me; onLogout: () => void }) {
             <Route path="transfer" element={<RecipientPicker accounts={list} />} />
             <Route path="transfer/:toId" element={<AmountPage accounts={list} />} />
             <Route path="history" element={<History accounts={list} ops={ops} />} />
+            <Route path="capacity" element={<PlayerCapacity tick={tick} />} />
             <Route path="results" element={<PlayerResults tick={tick} />} />
             <Route path="more" element={<More me={me} accounts={list} onLogout={onLogout} />} />
             <Route path="more/connect" element={<ConnectByPin accounts={list} reload={accounts.reload} />} />

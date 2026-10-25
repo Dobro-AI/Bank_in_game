@@ -137,6 +137,18 @@ describe('готовые игры', () => {
   });
 });
 
+describe('мощности у игрока', () => {
+  it('показывает компании роли: количество, расходы и мощность по каждому активу', async () => {
+    const [role] = await db.query("select id from role where game_id = $1 and title = 'Директор IVI'", [branchId]);
+    const view = await assets.playerCapacity(db, branchId, role.id);
+    expect(view.companies.map((c) => c.title)).toEqual(['IVI']);
+    expect(view.companies[0].assets.find((a) => a.title === 'Сервер')).toMatchObject({ quantity: 2, expenses: 20, capacity: 60, unit: 'ч' });
+    expect(view.companies[0].expenses).toBe(20);
+    const [other] = await db.query("insert into role (game_id, title, code) values ($1, 'Другая', '0000') returning id", [branchId]);
+    expect((await assets.playerCapacity(db, branchId, other.id)).companies).toEqual([]);
+  });
+});
+
 describe('итоги тактов', () => {
   it('остаток после каждого такта: завершённый — из слепка, текущий — с расходами, которые спишутся', async () => {
     const before = await assets.tactResults(db, branchId);

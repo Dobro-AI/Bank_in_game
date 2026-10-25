@@ -347,3 +347,24 @@ export async function tactResults(db: Db, gameId: number) {
       .sort((x, y) => x.title.localeCompare(y.title, 'ru')),
   };
 }
+
+/**
+ * A player's view of capacities: the companies of their role in the current tact — per asset the
+ * quantity, expenses (quantity × expense of one unit) and capacity (quantity × capacity of one unit),
+ * the same numbers as columns C, E and G of the "Мощности" sheet.
+ */
+export async function playerCapacity(db: Db, gameId: number, roleId: number) {
+  const mine = new Set((await db.query('select account_id from account_member where role_id = $1', [roleId])).map((m) => m.account_id));
+  const { tact, types, rows } = await capacityTable(db, gameId);
+  const typeBy = new Map(types.map((t) => [t.code, t]));
+  return {
+    tact: { number: tact.number, closed: !!tact.closed_at },
+    companies: rows.filter((r) => mine.has(r.accountId)).map((r) => {
+      const list = r.assets.filter((a) => a.end).map((a) => {
+        const opex = typeBy.get(a.code)?.opex_per_unit ?? 0;
+        return { code: a.code, title: a.title, quantity: a.end, expenses: a.end * opex, opexPerUnit: opex, capacity: a.capacity, unit: a.capacityUnit };
+      });
+      return { accountId: r.accountId, title: r.title, assets: list, expenses: list.reduce((s, a) => s + a.expenses, 0) };
+    }),
+  };
+}
