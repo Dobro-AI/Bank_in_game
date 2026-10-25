@@ -83,7 +83,9 @@
 /* ---------- Home ---------- */
 
 .home-head { padding: 8px 0 16px; }
-.home-total { font-size: 32px; font-weight: 700; line-height: 1.2; }
+/* The player's total is the first thing on the screen: big enough to read at arm's length. */
+.home-total { font-size: 56px; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 4px; }
+@media (min-width: 900px) { .home-total { font-size: 64px; } }
 .home-total .money { font-weight: 700; }
 .quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
 .quick {
