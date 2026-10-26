@@ -215,8 +215,34 @@ async function capacitySheet(db: Db, gameId: number) {
   const played = await tacts(db, gameId);
   const tables = [];
   for (const t of played) tables.push({ t, cap: await assets.capacityTable(db, gameId, t.id) });
-  // Only assets someone has (or had) get columns.
-  const used = new Set(tables.flatMap(({ cap }) => cap.rows.flatMap((r) => r.assets.filter((x) => x.end || x.output).map((x) => x.code))));
+  // Tacts still ahead are a forecast: the last tact's assets, each a tact older (trucks: +1 year).
+  const typeBy = new Map(types.map((ty) => [ty.code, ty]));
+  const age = (held: Map<string, number>) => {
+    const next = new Map<string, number>();
+    for (const [code, qty] of held) {
+      const to = typeBy.get(code)?.ages_to;
+      if (to === 'expire' || !qty) continue;
+      const target = to && typeBy.has(to) ? to : code;
+      next.set(target, (next.get(target) ?? 0) + qty);
+    }
+    return next;
+  };
+  const lastCap = tables.at(-1)?.cap;
+  const forecast: { number: number; rows: { title: string; held: Map<string, number> }[] }[] = [];
+  if (lastCap) {
+    let rows = [...lastCap.rows].sort((x, y) => kindOrder[x.kind] - kindOrder[y.kind] || x.title.localeCompare(y.title, 'ru'))
+      .filter((r) => r.assets.some((x) => x.end))
+      .map((r) => ({ title: r.title, held: new Map(r.assets.filter((x) => x.end).map((x) => [x.code, x.end])) }));
+    for (let number = played.length + 1; number <= PLANNED_TACTS; number++) {
+      rows = rows.map((r) => ({ title: r.title, held: age(r.held) }));
+      forecast.push({ number, rows });
+    }
+  }
+  // Only assets someone has, had or will have get columns.
+  const used = new Set([
+    ...tables.flatMap(({ cap }) => cap.rows.flatMap((r) => r.assets.filter((x) => x.end || x.output).map((x) => x.code))),
+    ...forecast.flatMap((f) => f.rows.flatMap((r) => [...r.held.keys()])),
+  ]);
   const shown = types.filter((ty) => used.has(ty.code));
   type Col = { kind: 'qty' | 'out' | 'cost' | 'power'; ty: any };
   const groups = shown.map((ty) => [
@@ -249,7 +275,6 @@ async function capacitySheet(db: Db, gameId: number) {
   const cells: Spec[][] = [top, sub];
   const tall: Record<number, number> = { 0: 44, 1: 48 };
   const ranges = new Map<string, [number, number]>();
-  let lastRows: string[] = [];
 
   for (const { t, cap } of tables) {
     const open = !t.closed_at; // a finished tact is frozen: no edits
@@ -258,7 +283,6 @@ async function capacitySheet(db: Db, gameId: number) {
     const first = cells.length + 1;
     const rows = [...cap.rows].sort((x, y) => kindOrder[x.kind] - kindOrder[y.kind] || x.title.localeCompare(y.title, 'ru'))
       .filter((r) => r.assets.some((x) => x.end || x.output));
-    lastRows = rows.map((r) => r.title);
     rows.forEach((r, i) => {
       const n = cells.length + 1;
       const bg = i % 2 ? ALT : '#ffffff';
@@ -294,11 +318,36 @@ async function capacitySheet(db: Db, gameId: number) {
     cells.push(sums);
     cells.push(pad([], width, { bare: true }));
   }
-  // Tacts still ahead: the same companies, filled in when the tact comes.
-  for (let number = played.length + 1; number <= PLANNED_TACTS && played.length; number++) {
+  // Tacts still ahead: the forecast, in grey and not editable; the real numbers come with the tact.
+  for (const f of forecast) {
     tall[cells.length] = 32;
-    cells.push(pad([{ ...BLACK, v: tactLabel({ number, closed_at: null, future: true }), size: 12 }], width, { bg: PEACH }));
-    lastRows.forEach((title, i) => cells.push(pad([{ v: title, bg: i % 2 ? ALT : '#ffffff', bold: true, align: 'LEFT' }], width, { bg: i % 2 ? ALT : '#ffffff' })));
+    cells.push(pad([{ ...BLACK, v: `${tactLabel({ number: f.number, closed_at: null, future: true })} — прогноз: машины на год старше`, size: 12 }], width, { bg: PEACH }));
+    const first = cells.length + 1;
+    f.rows.forEach((r, i) => {
+      const n = cells.length + 1;
+      const bg = i % 2 ? ALT : '#ffffff';
+      const grey = '#6b7280';
+      const row: Spec[] = [{ v: r.title, bg, bold: true, align: 'LEFT', fg: grey }];
+      const costCells: string[] = [];
+      cols.forEach((c, k) => {
+        const qtyAt = letter(cols.findIndex((y) => y.ty === c.ty && y.kind === 'qty'));
+        if (c.kind === 'qty') row.push({ v: r.held.get(c.ty.code) ?? 0, bg, fg: grey });
+        else if (c.kind === 'out') row.push({ v: '', bg: POWER });
+        else if (c.kind === 'cost') {
+          row.push({ v: c.ty.opex_per_unit ? `=${qtyAt}${n}*${c.ty.opex_per_unit}` : 0, bg: COST, fmt: NUM, fg: grey });
+          costCells.push(`${letter(k)}${n}`);
+        } else row.push({ v: `=${qtyAt}${n}*${c.ty.capacity_per_unit}`, bg: '#eef7ea', fg: grey, fmt: NUM });
+      });
+      row.push({ v: costCells.length ? `=${costCells.join('+')}` : 0, bg: '#f4cccc', fg: '#7f1d1d', fmt: NUM, note: 'Прогноз без рейсов: расходы на рейсы появятся, когда их впишут' });
+      cells.push(row);
+    });
+    const last = cells.length;
+    const sums: Spec[] = [{ v: 'Итого (прогноз):', bg: TOTAL, align: 'RIGHT', bold: true }];
+    cols.forEach((c, k) => sums.push(c.kind === 'cost' || c.kind === 'power'
+      ? { v: last >= first ? `=SUM(${letter(k)}${first}:${letter(k)}${last})` : 0, bg: TOTAL, fmt: NUM }
+      : { bg: TOTAL }));
+    sums.push({ v: last >= first ? `=SUM(${totalCol}${first}:${totalCol}${last})` : 0, bg: TOTAL, fmt: NUM });
+    cells.push(sums);
     cells.push(pad([], width, { bare: true }));
   }
   // An asset with a single column gets room for its name.

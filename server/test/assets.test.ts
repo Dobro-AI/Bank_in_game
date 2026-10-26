@@ -99,10 +99,15 @@ describe('Google-таблица', () => {
     // "Мощности": one row per company; per asset — quantity, served, expenses, capacity; then the total.
     expect(capacity[0].slice(0, 6)).toEqual(['Компания', 'Сервер', '', '', '', 'Грузовик 1 год']);
     const c = capacity.findIndex((r) => r[0] === 'IVI') + 1;
-    expect(capacity[c - 1]).toEqual(['IVI', 2, 0, `=B${c}*10`, `=B${c}*30`, 3, `=F${c}*1`, 1, `=H${c}*15`, `=D${c}`]);
+    // Columns: Сервер (B–E), Грузовик 1 год (F–G), ИИ (H–I), Грузовик 2 года (J–K, needed by the forecast), total L.
+    expect(capacity[c - 1]).toEqual(['IVI', 2, 0, `=B${c}*10`, `=B${c}*30`, 3, `=F${c}*1`, 1, `=H${c}*15`, 0, `=J${c}*1`, `=D${c}`]);
+    // Tacts ahead are a forecast: the trucks a year older, the one-tact technology gone.
+    const next = capacity.findIndex((r, i) => i > c && r[0] === 'IVI') + 1;
+    expect(String(capacity[next - 2][0])).toContain('прогноз');
+    expect(capacity[next - 1].slice(0, 11)).toEqual(['IVI', 2, '', `=B${next}*10`, `=B${next}*30`, 0, `=F${next}*1`, 0, `=H${next}*15`, 3, `=J${next}*1`]);
     // "Счета": start capital in B, income in C, expenses taken from the company's total in "Мощности", the balance in E.
     const n = accounts.findIndex((r) => r[0] === 'IVI') + 1;
-    expect(accounts[n - 1].slice(0, 5)).toEqual(['IVI', expect.any(Number), 0, `='Мощности'!J${c}`, expect.stringMatching(new RegExp(`^=B${n}\\+C${n}-D${n}\\+SUM\\(F${n}:`))]);
+    expect(accounts[n - 1].slice(0, 5)).toEqual(['IVI', expect.any(Number), 0, `='Мощности'!L${c}`, expect.stringMatching(new RegExp(`^=B${n}\\+C${n}-D${n}\\+SUM\\(F${n}:`))]);
   });
 
   it('понимает ссылку на таблицу', () => {
