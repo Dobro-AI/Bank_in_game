@@ -177,7 +177,13 @@ export function Capacities({ ctx }: { ctx: Ctx }) {
           <thead>
             <tr>
               <th rowSpan={2}>Компания</th>
-              {shown.map((g, i) => <th key={g.t.code} colSpan={span(g)} className={`group${i % 2 ? ' odd' : ''}`}>{g.t.title}</th>)}
+              {shown.map((g, i) => (
+                <th key={g.t.code} colSpan={span(g)} className={`group${i % 2 ? ' odd' : ''}`}>
+                  {g.t.title}
+                  {/* Trucks get a year older when the tact ends. */}
+                  {g.t.ages_to && <small className="ages">{g.t.ages_to === 'expire' ? 'исчезнет в конце такта' : `в конце такта → ${types.find((x) => x.code === g.t.ages_to)?.title ?? ''}`}</small>}
+                </th>
+              ))}
               <th rowSpan={2} className="num total">Всего расходов</th>
             </tr>
             <tr>

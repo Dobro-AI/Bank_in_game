@@ -290,8 +290,9 @@ export async function ageAssets(tx: Tx, gameId: number, closed: { number: number
 }
 
 /**
- * "Итоги тактов": per company and tact — income, expenses and the balance after the tact (column E of
- * "Счета"). A finished tact is its snapshot; the current one is live, as it will be when the tact ends.
+ * "Итоги тактов": per company and tact — income (earnings + money received), expenses (capacity
+ * expenses + money sent) and the balance after the tact (column E of "Счета"). A finished tact is its
+ * snapshot; the current one is live, as it will be when the tact ends.
  */
 export async function tactResults(db: Db, gameId: number) {
   const all = await listTacts(db, gameId);
@@ -303,6 +304,17 @@ export async function tactResults(db: Db, gameId: number) {
   const values = new Map<number, Cell[]>(companies.map((a) => [a.id, []]));
   for (const t of all) {
     const cap = new Map((await capacityTable(db, gameId, t.id)).rows.map((r) => [r.accountId, r]));
+    // Transfers between players and with the game master count too (start capital and the tact's
+    // own income/expense postings are not transfers: those are the earnings and expenses themselves).
+    const moved = new Map<number, { got: number; paid: number }>(
+      (await db.query(
+        `select a.id,
+           coalesce((select sum(amount) from transfer where tact_id = $2 and to_account_id = a.id and kind <> 'initial' and coalesce(idempotency_key, '') not like 'post:%'), 0) as got,
+           coalesce((select sum(amount) from transfer where tact_id = $2 and from_account_id = a.id and kind <> 'initial' and coalesce(idempotency_key, '') not like 'post:%'), 0) as paid
+         from account a where a.game_id = $1`,
+        [gameId, t.id],
+      )).map((m) => [m.id, { got: Number(m.got), paid: Number(m.paid) }]),
+    );
     const ends = new Map<number, number>();
     if (t.closed_at) {
       for (const s of await db.query('select account_id, balance_end from tact_snapshot where tact_id = $1', [t.id])) ends.set(s.account_id, Number(s.balance_end));
@@ -311,7 +323,8 @@ export async function tactResults(db: Db, gameId: number) {
     }
     for (const a of companies) {
       const r = cap.get(a.id);
-      values.get(a.id)!.push(ends.has(a.id) ? { income: r?.revenue ?? 0, expenses: r?.opex ?? 0, total: ends.get(a.id)! } : null);
+      const m = moved.get(a.id) ?? { got: 0, paid: 0 };
+      values.get(a.id)!.push(ends.has(a.id) ? { income: (r?.revenue ?? 0) + m.got, expenses: (r?.opex ?? 0) + m.paid, total: ends.get(a.id)! } : null);
     }
   }
   const planned = Math.max(PLANNED_TACTS, all.length);

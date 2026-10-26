@@ -432,3 +432,4 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .capacities.grid td.company { min-width: 150px; }
 .capacities.grid td.company .link-btn { display: block; padding: 0; min-height: 24px; font-size: 12px; }
 .capacities.grid td .cell-input { width: 56px; }
+.capacities.grid th.group small.ages { display: block; font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0; color: #92400e; }

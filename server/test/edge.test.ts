@@ -300,3 +300,22 @@ describe('сброс игры и скрытые команды', () => {
     await expect(games.joinRole(db, { gameId: hidden, roleId: r.id, firstName: 'Чужой', code: r.code })).rejects.toThrow('закрыта');
   });
 });
+
+describe('итоги тактов с переводами', () => {
+  it('доход = заработок + полученные переводы, затраты = расходы на мощности + отправленные; итог сходится', async () => {
+    const a = await join(adminBranch, 'Каро', 'Анна');
+    const karo = await legal(adminBranch, 'Каро');
+    const ivi = await legal(adminBranch, 'IVI');
+    await playerTransfer(db, a, { fromAccountId: karo.id, toAccountId: ivi.id, amount: 30 });
+    await assets.setOutput(db, adminBranch, { tactId: (await openTact(adminBranch)).id, accountId: ivi.id, code: assets.EARNED, amount: 12 });
+    const live = await assets.tactResults(db, adminBranch);
+    const cell = (r: typeof live, title: string) => r.rows.find((x) => x.title === title)!.values[0];
+    expect(cell(live, 'Каро')).toEqual({ income: 0, expenses: 20 + 30, total: 100 - 30 - 20 });
+    expect(cell(live, 'IVI')).toEqual({ income: 12 + 30, expenses: 20, total: 50 + 30 + 12 - 20 });
+    // After the tact ends the same numbers stand (the postings are not counted twice).
+    await assets.finishTact(db, adminBranch, null);
+    const done = await assets.tactResults(db, adminBranch);
+    expect(cell(done, 'Каро')).toEqual(cell(live, 'Каро'));
+    expect(cell(done, 'IVI')).toEqual(cell(live, 'IVI'));
+  });
+});

@@ -235,7 +235,9 @@ async function capacitySheet(db: Db, gameId: number) {
   const sub: Spec[] = [{ ...BLACK, v: '' }];
   groups.forEach((g, gi) => g.forEach((c, k) => {
     const bg = gi % 2 ? '#fdf3e7' : PEACH;
-    top.push({ v: k === 0 ? c.ty.title : '', bold: true, bg, align: 'LEFT', wrap: g.length === 1 });
+    // An asset that ages says what it becomes when the tact ends (trucks: 1 year → 2 years…).
+    const ages = c.ty.ages_to === 'expire' ? 'исчезает в конце такта' : c.ty.ages_to ? `в конце такта → ${types.find((x) => x.code === c.ty.ages_to)?.title ?? ''}` : '';
+    top.push({ v: k === 0 ? c.ty.title : '', bold: true, bg, align: 'LEFT', wrap: g.length === 1, ...(k === 0 && ages ? { note: ages } : {}) });
     const label = c.kind === 'qty' ? 'Кол-во'
       : c.kind === 'out' ? `Обслужено, ${c.ty.capacity_unit || 'ед.'}`
       : c.kind === 'cost' ? `Расходы (${[c.ty.opex_per_unit ? `${c.ty.opex_per_unit} за шт.` : '', c.ty.cost_per_output ? `${c.ty.cost_per_output} за ${c.ty.capacity_unit || 'ед.'}` : ''].filter(Boolean).join(' + ')})`
