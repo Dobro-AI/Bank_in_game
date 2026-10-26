@@ -181,7 +181,7 @@ export function buildApp(
       `select g.id, g.title, coalesce(string_agg(s.name, ', ' order by s.name), '') as hosts,
               coalesce(nullif(g.team, ''), string_agg(s.name, ' и ' order by s.name), '') as team
        from game g left join game_staff gs on gs.game_id = g.id left join staff s on s.id = gs.staff_id
-       where g.kind = 'branch' and g.status = 'active' and g.visible group by g.id order by g.parent_id, g.id`,
+       where g.kind = 'branch' and g.status = 'active' and g.visible and g.listed group by g.id order by g.parent_id, g.id`,
     );
   });
 
@@ -191,7 +191,7 @@ export function buildApp(
       `select r.id, r.title, r.description, r.preset_first_name as "presetFirstName", r.preset_last_name as "presetLastName",
               exists (select 1 from player p where p.role_id = r.id) as taken
        from role r join game g on g.id = r.game_id
-       where r.game_id = $1 and g.kind = 'branch' and g.status = 'active' and g.visible order by r.title`,
+       where r.game_id = $1 and g.kind = 'branch' and g.status = 'active' and g.visible and g.listed order by r.title`,
       [id],
     );
   });
@@ -399,6 +399,15 @@ export function buildApp(
     return games.createRootGame(db, (req.body as any).title);
   });
 
+  /** Admin: start a game over — transfers, players and sign-ins removed, start balances back. */
+  app.post('/api/admin/games/:id/reset', async (req) => {
+    await needSuper(req);
+    const id = Number((req.params as any).id);
+    await games.resetBranch(db, id);
+    changed(id);
+    return { ok: true };
+  });
+
   /** Super host: open / close a game for players, and rename it. */
   app.patch('/api/admin/games/:id', async (req) => {
     await needSuper(req);
@@ -412,6 +421,8 @@ export function buildApp(
         [id, Boolean(b.visible)],
       );
     }
+    // A team's game hidden from players is not offered at sign-in; its data stays.
+    if ('listed' in b) await db.query('update game set listed = $2 where id = $1', [id, Boolean(b.listed)]);
     if ('title' in b) {
       const title = String(b.title ?? '').trim().slice(0, 200);
       if (!title) throw new AppError('Укажите название игры');

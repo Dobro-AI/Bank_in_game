@@ -2,7 +2,7 @@ import { FormEvent, ReactNode, useState } from 'react';
 import { Link, Route, Routes, useNavigate } from 'react-router-dom';
 import { api, useLoad } from '../api';
 import { telegramLogin } from '../telegram';
-import { Empty, ErrorText, Field } from '../ui';
+import { Confirm, Empty, ErrorText, Field } from '../ui';
 import { BadgeIcon, GridIcon } from '../icons';
 import { GamePage } from './GamePage';
 import { AdminShell, NavItem } from './Shell';
@@ -89,6 +89,24 @@ function Games({ staff, manage }: { staff: Staff; manage: boolean }) {
       games.reload();
     } catch (e: any) { setError(e.message); }
   }
+  async function setListed(id: number, listed: boolean) {
+    setError(undefined);
+    try {
+      await api(`/api/admin/games/${id}`, { method: 'PATCH', body: { listed } });
+      games.reload();
+    } catch (e: any) { setError(e.message); }
+  }
+  const [reset, setReset] = useState<any>();
+  const [busy, setBusy] = useState(false);
+  async function doReset() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api(`/api/admin/games/${reset.id}/reset`, { body: {} });
+      setReset(undefined);
+      games.reload();
+    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  }
 
   // Super host: which game players see now, and who runs it.
   const branchRow = (b: any) => (
@@ -103,7 +121,14 @@ function Games({ staff, manage }: { staff: Staff; manage: boolean }) {
           <span>{b.visible ? 'Открыта игрокам' : 'Закрыта'}</span>
         </label>
       ) : <span className={b.visible ? 'chip accent' : 'chip'}>{b.visible ? 'открыта' : 'закрыта'}</span>}
-      {manage && <Link to={`/admin/g/${b.id}/staff`} className="btn small">Игротехники</Link>}
+      {manage && b.status === 'active' && (
+        <label className="switch" title="Предлагать эту игру при входе игрока">
+          <input type="checkbox" checked={b.listed} onChange={(e) => setListed(b.id, e.target.checked)} />
+          <span>{b.listed ? 'В списке у игроков' : 'Скрыта от игроков'}</span>
+        </label>
+      )}
+      {manage && <Link to={`/admin/g/${b.id}/settings`} className="btn small">Игротехники</Link>}
+      {manage && b.status === 'active' && <button className="btn small danger" onClick={() => setReset(b)}>Сбросить</button>}
     </div>
   );
 
@@ -133,6 +158,12 @@ function Games({ staff, manage }: { staff: Staff; manage: boolean }) {
             </section>
           ))}
           {roots.length === 0 && games.data && <Empty>Создайте первую игру</Empty>}
+          {reset && (
+            <Confirm title="Сбросить игру?" busy={busy} error={error} confirmText="Сбросить" onCancel={() => setReset(undefined)} onConfirm={doReset}>
+              {reset.title}{reset.team ? ` · ${reset.team}` : ''}: удалятся все переводы, вошедшие игроки и их привязки Telegram,
+              такты начнутся с первого, балансы и активы вернутся к стартовым. Коды ролей и настройки останутся.
+            </Confirm>
+          )}
         </>
       ) : (
         <>

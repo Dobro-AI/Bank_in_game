@@ -343,3 +343,6 @@ create table if not exists sheet_state (
   cells jsonb not null default '{}',
   primary key (sheet_id, title)
 );
+
+-- A team's game can be hidden from players (not offered at sign-in) without touching its data.
+alter table game add column if not exists listed boolean not null default true;

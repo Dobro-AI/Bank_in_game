@@ -338,12 +338,41 @@ export async function launchBranch(db: Db, gameId: number) {
     const [g] = await tx.query('select * from game where id = $1 for update', [gameId]);
     if (!g || g.kind !== 'branch') throw new AppError('Запускается только ответвление игры');
     if (g.status !== 'draft') throw new AppError('Игра уже запущена');
-    await tx.query("insert into account (game_id, kind, title) values ($1, 'host', 'Игротехник')", [gameId]);
-    await tx.query('insert into tact (game_id, number) values ($1, 1)', [gameId]);
-    for (const sa of await tx.query('select * from start_account where game_id = $1 order by id', [gameId])) {
-      await openStartAccount(tx, gameId, sa);
-    }
-    await tx.query("update game set status = 'active' where id = $1", [gameId]);
+    await launchTx(tx, gameId);
+  });
+}
+
+async function launchTx(tx: Tx, gameId: number) {
+  await tx.query("insert into account (game_id, kind, title) values ($1, 'host', 'Игротехник')", [gameId]);
+  await tx.query('insert into tact (game_id, number) values ($1, 1)', [gameId]);
+  for (const sa of await tx.query('select * from start_account where game_id = $1 order by id', [gameId])) {
+    await openStartAccount(tx, gameId, sa);
+  }
+  await tx.query("update game set status = 'active' where id = $1", [gameId]);
+}
+
+/**
+ * Starts a running game over: transfers, refused attempts, players with their sign-ins and Telegram
+ * links, tacts and accounts are removed, then the game is launched again — start balances and assets
+ * as at launch, the same role codes and settings.
+ */
+export async function resetBranch(db: Db, gameId: number) {
+  return db.transaction(async (tx) => {
+    const [g] = await tx.query("select * from game where id = $1 and kind = 'branch' for update", [gameId]);
+    if (!g) throw new AppError('Сбросить можно только ответвление игры', 404);
+    await tx.query('update assistant_proposal set transfer_id = null where game_id = $1', [gameId]);
+    await tx.query('delete from transfer_attempt where game_id = $1', [gameId]);
+    await tx.query('delete from transfer where game_id = $1', [gameId]);
+    await tx.query('delete from player where game_id = $1', [gameId]); // sessions and Telegram links go with them
+    await tx.query('delete from asset_ledger where game_id = $1', [gameId]);
+    await tx.query('delete from tact where game_id = $1', [gameId]); // snapshots, outputs, postings
+    await tx.query('delete from account where game_id = $1', [gameId]); // members and events
+    // The sheets are rewritten from scratch: what the bank wrote before is forgotten.
+    await tx.query(
+      "delete from sheet_state where sheet_id in (select sheet_id from game where id = $1 and sheet_id <> '' union select sheet_id from staff_sheet where game_id = $1)",
+      [gameId],
+    );
+    if (g.status !== 'draft') await launchTx(tx, gameId);
   });
 }
 
@@ -359,7 +388,7 @@ export async function joinRole(
     const [g] = await tx.query("select * from game where id = $1 and kind = 'branch'", [body.gameId]);
     if (!g || g.status !== 'active') throw new AppError('Игра не найдена или не запущена', 404);
     // A closed game keeps its players but takes no new sign-ins.
-    if (!g.visible) throw new AppError('Игра сейчас закрыта ведущим', 403);
+    if (!g.visible || g.listed === false) throw new AppError('Игра сейчас закрыта ведущим', 403);
     const [role] = await tx.query('select * from role where id = $1 and game_id = $2 for update', [body.roleId, g.id]);
     if (!role) throw new AppError('Роль не найдена', 404);
     if (!role.code || String(body.code) !== role.code) throw new AppError('Неверный код роли', 403);

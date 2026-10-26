@@ -269,3 +269,39 @@ describe('правки прямо в Google-таблице', () => {
     expect((await summary(db, adminBranch)).rows.find((r) => r.accountId === karo.id)!.balanceStart).toBe(50);
   });
 });
+
+describe('сброс игры и скрытые команды', () => {
+  it('сброс удаляет переводы, игроков и входы, возвращает стартовые балансы; коды остаются', async () => {
+    const a = await join(adminBranch, 'Каро', 'Анна');
+    const karo = await legal(adminBranch, 'Каро');
+    const ivi = await legal(adminBranch, 'IVI');
+    await playerTransfer(db, a, { fromAccountId: karo.id, toAccountId: ivi.id, amount: 30 });
+    await expect(playerTransfer(db, a, { fromAccountId: karo.id, toAccountId: ivi.id, amount: 999 })).rejects.toThrow();
+    await assets.finishTact(db, adminBranch, null);
+    const codeBefore = (await roleOf(adminBranch, 'Каро')).code;
+
+    await games.resetBranch(db, adminBranch);
+    const count = async (table: string) => Number((await rows(`select count(*)::int as n from ${table} where game_id = $1`, [adminBranch]))[0].n);
+    expect(await count('player')).toBe(0);
+    expect(await count('transfer_attempt')).toBe(0);
+    expect((await rows("select count(*)::int as n from transfer where game_id = $1 and kind <> 'initial'", [adminBranch]))[0].n).toBe(0);
+    expect((await rows('select number from tact where game_id = $1', [adminBranch])).map((t) => t.number)).toEqual([1]);
+    expect(Number((await legal(adminBranch, 'Каро')).balance)).toBe(100);
+    expect((await roleOf(adminBranch, 'Каро')).code).toBe(codeBefore);
+    // Players can join again with the same code.
+    const again = await join(adminBranch, 'Каро', 'Анна');
+    expect(again.playerId).not.toBe(a.playerId);
+  });
+
+  it('скрытая команда не предлагается при входе и не пускает по коду', async () => {
+    await seedTeams(db);
+    await rows("update game set listed = false where parent_id = $1 and team <> $2", [rootId, TEAMS[0].label]);
+    const app = buildApp(db);
+    const open = (await app.inject({ method: 'GET', url: '/api/public/games' })).json();
+    expect(open.map((g: any) => g.team)).toEqual([TEAMS[0].label]);
+    await app.close();
+    const hidden = (await rows('select id from game where parent_id = $1 and team = $2', [rootId, TEAMS[1].label]))[0].id;
+    const r = await roleOf(hidden, 'Каро');
+    await expect(games.joinRole(db, { gameId: hidden, roleId: r.id, firstName: 'Чужой', code: r.code })).rejects.toThrow('закрыта');
+  });
+});

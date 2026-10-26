@@ -165,7 +165,7 @@ export function createBot(db: Db, token: string) {
   async function showRoles(ctx: any, gameId: number, edit: boolean) {
     const roles = await db.query(
       `select r.id, r.title from role r join game g on g.id = r.game_id
-       where r.game_id = $1 and g.status = 'active' and g.visible order by r.title`,
+       where r.game_id = $1 and g.status = 'active' and g.visible and g.listed order by r.title`,
       [gameId],
     );
     const kb = new InlineKeyboard();
@@ -456,7 +456,7 @@ export async function openTeams(db: Db) {
   const list = await db.query(
     `select g.id, g.title, g.parent_id, coalesce(nullif(g.team, ''), string_agg(s.name, ' и ' order by s.name), g.title) as team
      from game g left join game_staff gs on gs.game_id = g.id left join staff s on s.id = gs.staff_id
-     where g.kind = 'branch' and g.status = 'active' and g.visible group by g.id order by g.parent_id, g.id`,
+     where g.kind = 'branch' and g.status = 'active' and g.visible and g.listed group by g.id order by g.parent_id, g.id`,
   );
   const severalGames = new Set(list.map((g) => g.parent_id)).size > 1;
   return list.map((g) => ({ id: g.id as number, label: (severalGames ? `${g.team} · ${g.title}` : g.team) as string }));
