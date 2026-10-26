@@ -321,7 +321,8 @@ async function capacitySheet(db: Db, gameId: number) {
   // Tacts still ahead: the forecast, in grey and not editable; the real numbers come with the tact.
   for (const f of forecast) {
     tall[cells.length] = 32;
-    cells.push(pad([{ ...BLACK, v: `${tactLabel({ number: f.number, closed_at: null, future: true })} — прогноз: машины на год старше`, size: 12 }], width, { bg: PEACH }));
+    cells.push(pad([{ ...BLACK, v: `${tactLabel({ number: f.number, closed_at: null, future: true })} — прогноз`, size: 12,
+      note: 'Активы последнего такта, машины на год старше. Настоящие цифры появятся, когда такт начнётся' }], width, { bg: PEACH }));
     const first = cells.length + 1;
     f.rows.forEach((r, i) => {
       const n = cells.length + 1;
