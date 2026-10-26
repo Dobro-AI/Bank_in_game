@@ -135,35 +135,28 @@ describe('такты и правки игротехника', () => {
     expect((await summary(db, adminBranch, t1.id)).rows.find((r) => r.accountId === karo.id)).toEqual(before);
   });
 
-  it('игротехник правит закончившийся такт: доход, мощности, начисление — всё пересчитывается дальше', async () => {
+  it('закончившийся такт заморожен: доход, мощности и записи журнала в нём не меняются', async () => {
     const karo = await legal(adminBranch, 'Каро');
     const [diana] = await rows("select id from staff where login = 'diana'");
     const t1 = await openTact(adminBranch);
     await assets.finishTact(db, adminBranch, null); // tact 1: expenses 2 × 10
-    const t2 = await openTact(adminBranch);
+    expect(await balance(karo.id)).toBe(80);
+    const snapshot = await summary(db, adminBranch, t1.id);
+    const [startRow] = await rows('select id from asset_ledger where game_id = $1 and account_id = $2', [adminBranch, karo.id]);
+
+    await expect(assets.setOutput(db, adminBranch, { tactId: t1.id, accountId: karo.id, code: assets.EARNED, amount: 30 })).rejects.toThrow('Такт завершён');
+    await expect(assets.addLedger(db, adminBranch, diana.id, { accountId: karo.id, code: serverCode, delta: 1, tactId: t1.id })).rejects.toThrow('Такт завершён');
+    await expect(assets.updateLedger(db, adminBranch, startRow.id, { delta: 9 })).rejects.toThrow('Такт завершён');
+    await expect(assets.deleteLedger(db, adminBranch, startRow.id)).rejects.toThrow('Такт завершён');
+    expect(await summary(db, adminBranch, t1.id)).toEqual(snapshot);
     expect(await balance(karo.id)).toBe(80);
 
-    // Income written into tact 1 afterwards: credited into tact 1, the snapshot and tact 2 follow.
-    await assets.setOutput(db, adminBranch, { tactId: t1.id, accountId: karo.id, code: assets.EARNED, amount: 30 });
-    expect(await balance(karo.id)).toBe(110);
-    const end1 = (await summary(db, adminBranch, t1.id)).rows.find((r) => r.accountId === karo.id)!;
-    expect(end1.balanceEnd).toBe(110);
-    expect((await summary(db, adminBranch)).rows.find((r) => r.accountId === karo.id)!.balanceStart).toBe(110);
-
-    // One more server in tact 1: its expense (10) is subtracted in tact 1 too.
-    await assets.addLedger(db, adminBranch, diana.id, { accountId: karo.id, code: serverCode, delta: 1, tactId: t1.id });
-    expect(await balance(karo.id)).toBe(100);
-    expect((await summary(db, adminBranch, t1.id)).rows.find((r) => r.accountId === karo.id)!.balanceEnd).toBe(100);
-
-    // A credit dated into tact 1.
-    await hostAdjust(db, adminBranch, diana.id, { accountId: karo.id, direction: 'credit', amount: 5, tactId: t1.id });
-    expect((await summary(db, adminBranch, t1.id)).rows.find((r) => r.accountId === karo.id)!.balanceEnd).toBe(105);
-    const credit = await rows("select tact_id from transfer where game_id = $1 and kind = 'host_credit' and amount = 5", [adminBranch]);
-    expect(credit[0].tact_id).toBe(t1.id);
-
-    // The open tact is untouched by these corrections: nothing posted into it.
-    const intoT2 = await rows('select count(*)::int as n from transfer where tact_id = $1', [t2.id]);
-    expect(intoT2[0].n).toBe(0);
+    // A change in the next tact counts there and never reaches back into tact 1.
+    await assets.addLedger(db, adminBranch, diana.id, { accountId: karo.id, code: serverCode, delta: 1 });
+    await assets.finishTact(db, adminBranch, null); // tact 2: 3 × 10
+    expect(await summary(db, adminBranch, t1.id)).toEqual(snapshot);
+    const posted = await rows('select t.number, p.amount from tact_posting p join tact t on t.id = p.tact_id where p.account_id = $1 and p.kind = $2 order by 1', [karo.id, 'opex']);
+    expect(posted.map((p) => [p.number, Number(p.amount)])).toEqual([[1, 20], [2, 30]]);
   });
 
   it('все виды операций проходят и балансы сходятся', async () => {
@@ -244,30 +237,32 @@ describe('правки прямо в Google-таблице', () => {
     expect((await assets.capacityTable(db, adminBranch)).rows.find((r) => r.accountId === karo.id)!.earned).toBe(70);
   });
 
-  it('правка в закончившемся такте через таблицу пересчитывает остатки', async () => {
-    const karo = await legal(adminBranch, 'Каро');
-    const t1 = await openTact(adminBranch);
-    await assets.finishTact(db, adminBranch, null);
-    const income = await cellOf('Счета', (k) => k.startsWith(`earned:${t1.id}:${karo.id}:`));
-    await applyEdit(db, adminBranch, income.key, income.was, 40);
-    expect(await balance(karo.id)).toBe(100 - 20 + 40);
-    expect((await summary(db, adminBranch, t1.id)).rows.find((r) => r.accountId === karo.id)!.balanceEnd).toBe(120);
-    // Editing again posts only the difference.
-    await applyEdit(db, adminBranch, income.key, 40, 25);
-    expect(await balance(karo.id)).toBe(105);
-  });
-
-  it('перевод игрока правится в таблице и после окончания такта', async () => {
+  it('правки закончившегося такта из таблицы не применяются, текущего — применяются один раз', async () => {
     const a = await join(adminBranch, 'Каро', 'Анна');
     const karo = await legal(adminBranch, 'Каро');
     const ivi = await legal(adminBranch, 'IVI');
     const { transfer: t } = await playerTransfer(db, a, { fromAccountId: karo.id, toAccountId: ivi.id, amount: 10 });
     const t1 = await openTact(adminBranch);
     await assets.finishTact(db, adminBranch, null);
-    await editTransfer(db, adminBranch, t.id, { amount: 30 });
-    expect((await summary(db, adminBranch, t1.id)).rows.find((r) => r.accountId === karo.id)!.balanceEnd).toBe(100 - 30 - 20);
-    expect((await summary(db, adminBranch)).rows.find((r) => r.accountId === karo.id)!.balanceStart).toBe(50);
+    const snapshot = await summary(db, adminBranch, t1.id);
+    const balances = [await balance(karo.id), await balance(ivi.id)];
+
+    // The sheet offers no edit in a finished tact, and keys of that tact are ignored anyway.
+    const grids = await buildSheets(db, adminBranch);
+    const keys = grids.flatMap((g) => Object.values(stateOf(g)).map(([k]) => k));
+    expect(keys.filter((k) => k.startsWith(`earned:${t1.id}:`) || k.startsWith(`qty:${t1.id}:`) || k === `move:${t.id}` || k === `amount:${t.id}`)).toEqual([]);
+    await applyEdit(db, adminBranch, `earned:${t1.id}:${karo.id}:0`, 0, 40);
+    await applyEdit(db, adminBranch, `qty:${t1.id}:${karo.id}:${serverCode}`, 2, 6);
+    await applyEdit(db, adminBranch, `move:${t.id}`, -10, -30);
+    await applyEdit(db, adminBranch, `new:${t1.id}:${karo.id}`, '', 15);
+    expect(await summary(db, adminBranch, t1.id)).toEqual(snapshot);
+    expect([await balance(karo.id), await balance(ivi.id)]).toEqual(balances);
+
+    // The current tact's cells are editable.
+    const t2 = await openTact(adminBranch);
+    expect(keys).toContain(`qty:${t2.id}:${karo.id}:${serverCode}`);
   });
+
 });
 
 describe('сброс игры и скрытые команды', () => {

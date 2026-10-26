@@ -20,8 +20,6 @@ export interface TransferInput {
   idempotencyKey?: string | null;
   /** Fixed-price costs and host debits may push a player account below zero. */
   allowNegative?: boolean;
-  /** A game master's correction of a finished tact goes into that tact; everything else into the open one. */
-  tactId?: number;
 }
 
 export function parseAmount(v: unknown): number {
@@ -42,10 +40,8 @@ export async function transferTx(tx: Tx, t: TransferInput) {
   if (t.fromAccountId === t.toAccountId) throw new AppError('Нельзя перевести на тот же счёт');
   const comment = (t.comment ?? '').trim().slice(0, 500);
 
-  const [tact] = t.tactId
-    ? await tx.query('select id from tact where id = $1 and game_id = $2 for share', [t.tactId, t.gameId])
-    : await tx.query('select id from tact where game_id = $1 and closed_at is null for share', [t.gameId]);
-  if (!tact) throw new AppError(t.tactId ? 'Такт не найден' : 'Игра ещё не запущена');
+  const [tact] = await tx.query('select id from tact where game_id = $1 and closed_at is null for share', [t.gameId]);
+  if (!tact) throw new AppError('Игра ещё не запущена');
 
   const accounts = await tx.query(
     'select id, kind, balance from account where id = any($1::int[]) and game_id = $2 order by id for update',
@@ -215,19 +211,11 @@ export async function payFixedPrice(
   );
 }
 
-/** A game master's operation written into a finished tact recounts that tact's snapshot and the later ones. */
-export const intoTact = (tactId?: number) => (tactId
-  ? async (tx: Tx, row: any) => {
-    const [t] = await tx.query('select closed_at from tact where id = $1', [row.tact_id]);
-    if (t?.closed_at) await rebuildSnapshots(tx, row.game_id, row.tact_id);
-  }
-  : undefined);
-
 export async function hostAdjust(
   db: Db,
   gameId: number,
   staffId: number,
-  body: { accountId: number; direction: 'credit' | 'debit'; amount: unknown; comment?: string; idempotencyKey?: string; tactId?: number },
+  body: { accountId: number; direction: 'credit' | 'debit'; amount: unknown; comment?: string; idempotencyKey?: string },
 ) {
   const amount = parseAmount(body.amount);
   const hostId = await hostAccountId(db, gameId);
@@ -244,8 +232,7 @@ export async function hostAdjust(
     initiatorStaffId: staffId,
     idempotencyKey: scopedKey(`s${staffId}`, body.idempotencyKey),
     allowNegative: true,
-    tactId: body.tactId,
-  }, undefined, intoTact(body.tactId));
+  });
 }
 
 /** Revenue/OPEX postings carry `post:<kind>:<tact>:<account>:…` keys; their signed share of tact_posting. */
@@ -260,9 +247,12 @@ async function postingShare(tx: Tx, t: any, amount: number) {
     [sign * amount, Number(tactId), Number(accountId), kind]);
 }
 
+/** A finished tact is frozen: nothing in it changes after "Закончить такт". */
+export const FROZEN = 'Такт завершён: суммы в нём больше не меняются';
+
 /**
- * The host corrects a transfer of any tact: balances move by the difference and snapshots of
- * closed tacts are recounted. Start capital and revenue/OPEX postings keep their accounts.
+ * The host corrects a transfer of the current tact: balances move by the difference.
+ * Start capital and revenue/OPEX postings keep their accounts. Finished tacts are frozen.
  */
 export async function editTransfer(
   db: Db,
@@ -273,6 +263,7 @@ export async function editTransfer(
   await db.transaction(async (tx) => {
     const [t] = await tx.query('select * from transfer where id = $1 and game_id = $2 for update', [transferId, gameId]);
     if (!t) throw new AppError('Перевод не найден', 404);
+    if ((await tx.query('select closed_at from tact where id = $1', [t.tact_id]))[0]?.closed_at) throw new AppError(FROZEN);
     const amount = body.amount === undefined ? Number(t.amount) : parseAmount(body.amount);
     const fixed = t.kind === 'initial' || String(t.idempotency_key ?? '').startsWith('post:');
     const fromId = fixed || !body.fromAccountId ? t.from_account_id : Number(body.fromAccountId);
@@ -300,11 +291,12 @@ export async function editTransfer(
   });
 }
 
-/** Removes a transfer as if it never happened; assets bought with it go too. */
+/** Removes a transfer of the current tact as if it never happened; assets bought with it go too. */
 export async function deleteTransfer(db: Db, gameId: number, transferId: number) {
   await db.transaction(async (tx) => {
     const [t] = await tx.query('select * from transfer where id = $1 and game_id = $2 for update', [transferId, gameId]);
     if (!t) throw new AppError('Перевод не найден', 404);
+    if ((await tx.query('select closed_at from tact where id = $1', [t.tact_id]))[0]?.closed_at) throw new AppError(FROZEN);
     await tx.query('select id from account where id = any($1::int[]) order by id for update', [[t.from_account_id, t.to_account_id]]);
     await tx.query('update account set balance = balance + $1 where id = $2', [t.amount, t.from_account_id]);
     await tx.query('update account set balance = balance - $1 where id = $2', [t.amount, t.to_account_id]);

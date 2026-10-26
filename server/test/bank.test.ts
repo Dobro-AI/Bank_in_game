@@ -222,7 +222,7 @@ describe('коды ролей', () => {
 });
 
 describe('правка переводов ведущим', () => {
-  it('сумма, получатель и удаление двигают балансы и пересчитывают слепки закрытых тактов', async () => {
+  it('в текущем такте сумма, получатель и удаление двигают балансы; закончившийся такт не меняется', async () => {
     const mayor = await join('Мэр');
     const banker = await join('Банкир');
     const journalist = await join('Журналист');
@@ -230,22 +230,22 @@ describe('правка переводов ведущим', () => {
     const to = await accountOf(banker.roleId, 'individual');
     const other = await accountOf(journalist.roleId, 'individual');
     const { transfer: t } = await playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 30 });
-    const { closed } = await closeTact(db, branchId);
 
     await editTransfer(db, branchId, t.id, { amount: 40, toAccountId: other.id, comment: 'исправлено' });
     expect(await balanceOf(from.id)).toBe(60);
     expect(await balanceOf(to.id)).toBe(50);
     expect(await balanceOf(other.id)).toBe(40);
-    const snap = (await summary(db, branchId, closed.id)).rows;
-    expect(snap.find((r) => r.accountId === other.id)).toMatchObject({ received: 40, balanceEnd: 40 });
-    expect(snap.find((r) => r.accountId === to.id)).toMatchObject({ received: 0, balanceEnd: 50 });
-    // The open tact starts where the corrected snapshot ends.
-    expect((await summary(db, branchId)).rows.find((r) => r.accountId === other.id).balanceStart).toBe(40);
-
     await deleteTransfer(db, branchId, t.id);
     expect(await balanceOf(from.id)).toBe(100);
     expect(await balanceOf(other.id)).toBe(0);
-    expect((await summary(db, branchId, closed.id)).rows.find((r) => r.accountId === from.id).balanceEnd).toBe(100);
+
+    const { transfer: t2 } = await playerTransfer(db, mayor, { fromAccountId: from.id, toAccountId: to.id, amount: 10 });
+    const { closed } = await closeTact(db, branchId);
+    const before = (await summary(db, branchId, closed.id)).rows;
+    await expect(editTransfer(db, branchId, t2.id, { amount: 50 })).rejects.toThrow('Такт завершён');
+    await expect(deleteTransfer(db, branchId, t2.id)).rejects.toThrow('Такт завершён');
+    expect((await summary(db, branchId, closed.id)).rows).toEqual(before);
+    expect(await balanceOf(from.id)).toBe(90);
   });
 });
 

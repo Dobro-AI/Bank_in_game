@@ -51,8 +51,8 @@ export function Money({ ctx }: { ctx: Ctx }) {
   if (!cap.data || !sum.data) return <ErrorText error={cap.error || sum.error} />;
   const tact = cap.data.tact;
   const open = !tact.closed_at;
-  // A game master may correct a finished tact too: the bank recounts it and the tacts after it.
-  const editable = ctx.d.can.run;
+  // A finished tact is frozen: it is shown, not edited.
+  const editable = open && ctx.d.can.run;
   const bySum = new Map(sum.data.rows.map((r) => [r.accountId, r]));
   const rows = companies(cap.data.rows);
   // Income and expense postings are shown as such, not among the transfers.
@@ -67,8 +67,7 @@ export function Money({ ctx }: { ctx: Ctx }) {
       <div className="row between" style={{ marginBottom: 12 }}>
         {picker}
         <span className="small muted">
-          {open ? 'Доходы начислятся, а расходы на мощности спишутся, когда такт закончат во вкладке «Такт».'
-            : 'Такт завершён. Правки игротехника записываются в этот такт и пересчитывают его итоги и следующие такты.'}
+          {open ? 'Доходы начислятся, а расходы на мощности спишутся, когда такт закончат во вкладке «Такт».' : 'Такт завершён: суммы зафиксированы и больше не меняются.'}
         </span>
       </div>
       <div className="table-wrap">
@@ -104,7 +103,7 @@ export function Money({ ctx }: { ctx: Ctx }) {
                         : <Amount value={r.balance} />}
                     </td>
                   )}
-                  <td>{ctx.d.can.run && <button className="btn small" onClick={() => setMoneyFor(r)}>Деньги</button>}</td>
+                  <td>{editable && <button className="btn small" onClick={() => setMoneyFor(r)}>Деньги</button>}</td>
                 </tr>
               );
             })}
@@ -120,7 +119,7 @@ export function Money({ ctx }: { ctx: Ctx }) {
       </div>
       {open && <p className="small muted">Остаток — сколько будет на счёте после завершения такта: на начало + доходы − расходы + переводы.</p>}
 
-      {moneyFor && <MoneyDialog ctx={ctx} row={moneyFor} tactId={open ? undefined : tact.id} tactNumber={tact.number} onClose={() => setMoneyFor(undefined)} onDone={() => { setMoneyFor(undefined); ctx.reload(); reload(); }} />}
+      {moneyFor && <MoneyDialog ctx={ctx} row={moneyFor} onClose={() => setMoneyFor(undefined)} onDone={() => { setMoneyFor(undefined); ctx.reload(); reload(); }} />}
     </>
   );
 }
@@ -138,7 +137,7 @@ export function Capacities({ ctx }: { ctx: Ctx }) {
   if (ctx.d.game.status === 'draft') return <Empty>Мощности появятся после запуска игры</Empty>;
   if (!cap.data) return <ErrorText error={cap.error} />;
   const tact = cap.data.tact;
-  const editable = ctx.d.can.run;
+  const editable = !tact.closed_at && ctx.d.can.run;
   const types = cap.data.types;
   const typeBy = new Map(types.map((t) => [t.code, t]));
   const rows = companies(cap.data.rows);
@@ -148,7 +147,7 @@ export function Capacities({ ctx }: { ctx: Ctx }) {
     if (to === from) return;
     try {
       await api(`/api/admin/games/${ctx.id}/ledger`, {
-        body: { accountId, code, delta: to - from, comment: 'Изменено в мощностях', ...(tact.closed_at ? { tactId: tact.id } : {}) },
+        body: { accountId, code, delta: to - from, comment: 'Изменено в мощностях' },
       });
       setError(undefined);
       cap.reload();
@@ -160,8 +159,7 @@ export function Capacities({ ctx }: { ctx: Ctx }) {
       <div className="row between" style={{ marginBottom: 12 }}>
         {picker}
         <span className="small muted">
-          {!tact.closed_at ? 'Расходы компании идут в «Счета» и спишутся при завершении такта.'
-            : 'Такт завершён. Изменения записываются в этот такт и пересчитывают его расходы и следующие такты.'}
+          {!tact.closed_at ? 'Расходы компании идут в «Счета» и спишутся при завершении такта.' : 'Такт завершён: суммы зафиксированы и больше не меняются.'}
         </span>
       </div>
       <ErrorText error={error} />
@@ -295,9 +293,7 @@ function Qty({ value, label, onSave }: { value: number; label: string; onSave: (
 type Kind = 'transfer' | 'credit' | 'debit';
 
 /** Move money for a company: to another company, or credit / debit by the game master. */
-function MoneyDialog({ ctx, row, tactId, tactNumber, onClose, onDone }: {
-  ctx: Ctx; row: CapRow; tactId?: number; tactNumber: number; onClose: () => void; onDone: () => void;
-}) {
+function MoneyDialog({ ctx, row, onClose, onDone }: { ctx: Ctx; row: CapRow; onClose: () => void; onDone: () => void }) {
   const [kind, setKind] = useState<Kind>('transfer');
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
@@ -314,9 +310,9 @@ function MoneyDialog({ ctx, row, tactId, tactNumber, onClose, onDone }: {
     setError(undefined);
     try {
       if (kind === 'transfer') {
-        await api(`/api/admin/games/${ctx.id}/transfer`, { body: { fromAccountId: row.accountId, toAccountId: Number(to), amount: n, comment, idempotencyKey: key, tactId } });
+        await api(`/api/admin/games/${ctx.id}/transfer`, { body: { fromAccountId: row.accountId, toAccountId: Number(to), amount: n, comment, idempotencyKey: key } });
       } else {
-        await api(`/api/admin/games/${ctx.id}/adjust`, { body: { accountId: row.accountId, direction: kind, amount: n, comment, idempotencyKey: key, tactId } });
+        await api(`/api/admin/games/${ctx.id}/adjust`, { body: { accountId: row.accountId, direction: kind, amount: n, comment, idempotencyKey: key } });
       }
       onDone();
     } catch (err: any) { setError(err.message); setBusy(false); }
@@ -332,7 +328,7 @@ function MoneyDialog({ ctx, row, tactId, tactNumber, onClose, onDone }: {
           ))}
         </div>
         <p className="small muted" style={{ margin: 0 }}>
-          Сейчас на счёте {money(row.balance)}{tactId ? ` · запишется в завершённый такт ${tactNumber}` : ''}
+          Сейчас на счёте {money(row.balance)}
         </p>
         {kind === 'transfer' && (
           <div className="field">

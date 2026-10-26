@@ -180,12 +180,14 @@ function Transfers({ ctx }: { ctx: Ctx }) {
         <table>
           <thead><tr><th>Такт</th><th>Время</th><th className="num">Сумма</th><th>От кого</th><th>Кому</th><th>Действие</th><th>Комментарий</th><th>Кто сделал</th>{editable && <th></th>}</tr></thead>
           <tbody>
-            {list.data?.map((t) => editable
+            {/* Transfers of a finished tact are frozen: shown, not edited. */}
+            {list.data?.map((t) => editable && !t.tact_closed
               ? <TransferRow key={`${t.id}:${t.amount}:${t.from_account_id}:${t.to_account_id}:${t.comment}`} ctx={ctx} t={t} onSaved={list.reload} />
               : (
                 <tr key={t.id}>
                   <td>{t.tact}</td><td className="nowrap">{timeOnly(t.created_at)}</td><td className="num"><Money value={t.amount} /></td>
                   <td>{t.from_title}</td><td>{t.to_title}</td><td>{KIND_LABEL[t.kind]}</td><td>{t.comment}</td><td className="small muted">{t.initiator}</td>
+                  {editable && <td className="tiny muted">такт завершён</td>}
                 </tr>
               ))}
           </tbody>

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, Db, Tx } from './db.js';
-import { PLANNED_TACTS, closeTact, membersByAccount, ownersText, rebuildSnapshots, tacts as listTacts } from './reports.js';
-import { hostAccountId, transferEvents, transferTx } from './transfers.js';
+import { PLANNED_TACTS, closeTact, membersByAccount, ownersText, tacts as listTacts } from './reports.js';
+import { FROZEN, hostAccountId, transferEvents, transferTx } from './transfers.js';
 
 /**
  * Assets and capacities: servers, venues, trucks, staff... Holdings are the sum of ledger rows.
@@ -127,6 +127,7 @@ export async function setOutput(db: Db, gameId: number, body: { tactId: number; 
       [body.tactId, body.accountId, body.code, gameId],
     );
   if (!ok) throw new AppError('Не найдено', 404);
+  if ((await db.query('select closed_at from tact where id = $1', [body.tactId]))[0]?.closed_at) throw new AppError(FROZEN);
   if (amount === 0) {
     await db.query('delete from tact_output where tact_id = $1 and account_id = $2 and asset_code = $3', [body.tactId, body.accountId, body.code]);
   } else {
@@ -136,9 +137,6 @@ export async function setOutput(db: Db, gameId: number, body: { tactId: number; 
       [body.tactId, body.accountId, body.code, amount],
     );
   }
-  // A finished tact was corrected: its income and expenses are posted again by difference.
-  const [t] = await db.query('select number, closed_at from tact where id = $1', [body.tactId]);
-  if (t?.closed_at) await settleFinished(db, gameId, t.number, null);
 }
 
 /**
@@ -146,14 +144,11 @@ export async function setOutput(db: Db, gameId: number, body: { tactId: number; 
  * numbers moves only the difference, so a company is never charged twice. OPEX may push an account
  * below zero, as any host debit does.
  */
-export async function postTact(db: Db, gameId: number, staffId: number | null, kind: 'revenue' | 'opex', tactId?: number) {
+export async function postTact(db: Db, gameId: number, staffId: number | null, kind: 'revenue' | 'opex') {
   if (kind !== 'revenue' && kind !== 'opex') throw new AppError('Неизвестная операция');
   const made: any[] = [];
   const res = await db.transaction(async (tx) => {
-    // The open tact, or a finished one the game master corrected afterwards.
-    const [open] = tactId
-      ? await tx.query('select * from tact where id = $1 and game_id = $2 for update', [tactId, gameId])
-      : await tx.query('select * from tact where game_id = $1 and closed_at is null for update', [gameId]);
+    const [open] = await tx.query('select * from tact where game_id = $1 and closed_at is null for update', [gameId]);
     if (!open) throw new AppError('Нет открытого такта');
     const { rows } = await capacityTable(tx, gameId, open.id);
     const hostId = await hostAccountId(tx, gameId);
@@ -173,7 +168,7 @@ export async function postTact(db: Db, gameId: number, staffId: number | null, k
         fromAccountId: toCompany ? hostId : r.accountId,
         toAccountId: toCompany ? r.accountId : hostId,
         amount: Math.abs(diff), comment: `${label}${done ? ' (исправление)' : ''}: ${details || 'нет'}`,
-        initiatorStaffId: staffId, allowNegative: true, tactId: open.id,
+        initiatorStaffId: staffId, allowNegative: true,
         // The prefix tells corrections which posting this is; the tact row lock already rules out doubles.
         idempotencyKey: `post:${kind}:${open.id}:${r.accountId}:${amount}:${randomUUID()}`,
       });
@@ -186,31 +181,10 @@ export async function postTact(db: Db, gameId: number, staffId: number | null, k
       count++;
       total += diff;
     }
-    // A finished tact changed: its snapshot and every later one are recounted.
-    if (open.closed_at && count) await rebuildSnapshots(tx, gameId, open.id);
     return { count, total, tact: open.number };
   });
   for (const t of made) transferEvents.emit('transfer', t);
   return res;
-}
-
-/**
- * After a game master changed a finished tact (income, assets, served hours), its income and expenses
- * are posted again by difference into that tact and every later finished one, and snapshots recounted.
- */
-export async function settleFinished(db: Db, gameId: number, fromNumber: number, staffId: number | null) {
-  const closed = (await listTacts(db, gameId)).filter((t) => t.closed_at && t.number >= fromNumber);
-  for (const t of closed) {
-    await postTact(db, gameId, staffId, 'revenue', t.id);
-    await postTact(db, gameId, staffId, 'opex', t.id);
-  }
-}
-
-/** Number of the tact a ledger row belongs to (rows without a tact count from the start). */
-async function tactNumberOf(db: Db, tactId: number | null) {
-  if (!tactId) return 1;
-  const [t] = await db.query('select number from tact where id = $1', [tactId]);
-  return t?.number ?? 1;
 }
 
 /**
@@ -254,34 +228,38 @@ const delta = (v: unknown) => {
 };
 
 /** Something came or went outside the bank (bought from a player, broke down...): host writes it in. */
-/** Assets came or went; `tactId` puts the row into a finished tact (a game master's correction). */
+/** Assets came or went in the current tact (finished tacts are frozen). */
 export async function addLedger(db: Db, gameId: number, staffId: number | null, body: { accountId: number; code: string; delta: unknown; comment?: string; tactId?: number }) {
   await checkRefs(db, gameId, Number(body.accountId), String(body.code));
-  const [tact] = body.tactId
-    ? await db.query('select id, number from tact where id = $1 and game_id = $2', [Number(body.tactId), gameId])
-    : await db.query('select id, number from tact where game_id = $1 and closed_at is null', [gameId]);
-  if (body.tactId && !tact) throw new AppError('Такт не найден', 404);
+  const [tact] = await db.query('select id from tact where game_id = $1 and closed_at is null', [gameId]);
+  if (body.tactId && Number(body.tactId) !== tact?.id) throw new AppError(FROZEN);
   const [row] = await db.query(
     `insert into asset_ledger (game_id, account_id, asset_code, delta, tact_id, reason, comment, staff_id)
      values ($1, $2, $3, $4, $5, 'manual', $6, $7) returning *`,
     [gameId, Number(body.accountId), String(body.code), delta(body.delta), tact?.id ?? null, String(body.comment ?? '').slice(0, 300), staffId],
   );
-  await settleFinished(db, gameId, tact?.number ?? 1, staffId);
   return row;
+}
+
+/** A row of a finished tact stays as it was. */
+async function assertLedgerOpen(db: Db, row: any) {
+  if (row.tact_id && (await db.query('select closed_at from tact where id = $1', [row.tact_id]))[0]?.closed_at) throw new AppError(FROZEN);
 }
 
 export async function updateLedger(db: Db, gameId: number, id: number, body: { delta?: unknown; comment?: string }) {
   const [row] = await db.query('select * from asset_ledger where id = $1 and game_id = $2', [id, gameId]);
   if (!row) throw new AppError('Запись не найдена', 404);
+  await assertLedgerOpen(db, row);
   await db.query('update asset_ledger set delta = $2, comment = $3 where id = $1', [
     id, body.delta === undefined ? row.delta : delta(body.delta), body.comment === undefined ? row.comment : String(body.comment).slice(0, 300),
   ]);
-  await settleFinished(db, gameId, await tactNumberOf(db, row.tact_id), null);
 }
 
 export async function deleteLedger(db: Db, gameId: number, id: number) {
-  const [row] = await db.query('delete from asset_ledger where id = $1 and game_id = $2 returning tact_id', [id, gameId]);
-  if (row) await settleFinished(db, gameId, await tactNumberOf(db, row.tact_id), null);
+  const [row] = await db.query('select * from asset_ledger where id = $1 and game_id = $2', [id, gameId]);
+  if (!row) return;
+  await assertLedgerOpen(db, row);
+  await db.query('delete from asset_ledger where id = $1', [id]);
 }
 
 /**

@@ -69,7 +69,7 @@ export async function listTransfers(db: Db, gameId: number, f: Filters) {
       where m.role_id = $${n} and m.account_id in (t.from_account_id, t.to_account_id)))`);
   }
   return db.query(
-    `select t.id, t.created_at, tc.number as tact, t.kind, t.amount, t.comment,
+    `select t.id, t.created_at, tc.number as tact, tc.closed_at is not null as tact_closed, t.kind, t.amount, t.comment,
             coalesce(t.idempotency_key like 'post:%', false) as posting,
             t.from_account_id, fa.title as from_title, t.to_account_id, ta.title as to_title,
             coalesce(ip.first_name || ' ' || ip.last_name || ' (' || ir.title || ')', s.name, '') as initiator

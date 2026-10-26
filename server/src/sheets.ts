@@ -3,7 +3,7 @@ import { JWT, OAuth2Client } from 'google-auth-library';
 import * as assets from './assets.js';
 import { AppError, Db } from './db.js';
 import { userClient } from './google-user.js';
-import { deleteTransfer, editTransfer, hostAccountId, intoTact, transfer } from './transfers.js';
+import { deleteTransfer, editTransfer, hostAccountId, transfer } from './transfers.js';
 import { KIND_LABEL, PLANNED_TACTS, listTransfers, tacts } from './reports.js';
 
 /**
@@ -226,6 +226,7 @@ async function capacitySheet(db: Db, gameId: number) {
   // Each tact is its own block computed from that tact's data: a change in a later tact never alters an earlier one.
   for (const t of played) {
     const cap = await assets.capacityTable(db, gameId, t.id);
+    const open = !t.closed_at; // a finished tact is frozen: no edits
     tall[cells.length] = 32;
     cells.push(pad([{ ...BLACK, v: tactLabel(t), size: 12 }], width, { bg: PEACH }));
     const first = cells.length + 1;
@@ -241,10 +242,10 @@ async function capacitySheet(db: Db, gameId: number) {
         const n = cells.length + 1;
         cells.push([
           { v: r.title, bg, bold: n === from }, { v: x.title, bg, align: 'LEFT' },
-          { v: x.end, bg, bold: true, edit: `qty:${t.id}:${r.accountId}:${x.code}` },
+          { v: x.end, bg, bold: true, ...(open ? { edit: `qty:${t.id}:${r.accountId}:${x.code}` } : {}) },
           { v: ty?.opex_per_unit ?? 0, bg: COST, fmt: NUM }, { v: `=C${n}*D${n}`, bg: COST_SUM, bold: true, fmt: NUM },
           { v: ty?.capacity_per_unit ?? 0, bg: POWER_GREEN, fmt: NUM }, { v: `=C${n}*F${n}`, bg: '#b6d7a8', bold: true, fmt: NUM }, { v: x.capacityUnit, bg },
-          ...(served ? [{ v: x.output, bg: POWER, ...(x.capacityUnit ? { edit: `out:${t.id}:${r.accountId}:${x.code}` } : {}) }, { v: ty?.cost_per_output ?? 0, bg: COST, fmt: NUM },
+          ...(served ? [{ v: x.output, bg: POWER, ...(open && x.capacityUnit ? { edit: `out:${t.id}:${r.accountId}:${x.code}` } : {}) }, { v: ty?.cost_per_output ?? 0, bg: COST, fmt: NUM },
             { v: `=I${n}*J${n}`, bg: COST_SUM, fmt: NUM }, { v: `=E${n}+K${n}`, bg: '#e06666', fg: '#ffffff', bold: true, fmt: NUM }] : []),
         ]);
       }
@@ -324,15 +325,16 @@ async function accountsSheet(db: Db, gameId: number, title: string, cap: Awaited
       const range = cap.ranges.get(`${t.id}:${x.id}`);
       const cost: Cell = range ? `=SUM('Мощности'!${cap.costCol}${range[0]}:${cap.costCol}${range[1]})` : r?.opex ?? '';
       const moved = cellsOf(t.id, x.id);
-      // A played tact can be edited right in the sheet: income, a transfer's amount, a new number to the right.
-      const played = !('future' in t);
+      // The current tact can be edited right in the sheet: income, a transfer's amount, a new number to the right.
+      // A finished tact is frozen, so its cells take no edits.
+      const played = !('future' in t) && !t.closed_at;
       cells.push(pad([
         { v: x.title, bg },
         { v: prev ? `=E${prev}${initial ? `+${initial}` : ''}` : initial, bg, bold: true, fmt: NUM },
-        { v: r ? r.revenue : '', bg: INCOME, fmt: NUM, ...(r?.revenueText ? { note: r.revenueText } : {}), ...(r ? { edit: `earned:${t.id}:${x.id}:${r.revenue - r.earned}` } : {}) },
+        { v: r ? r.revenue : '', bg: INCOME, fmt: NUM, ...(r?.revenueText ? { note: r.revenueText } : {}), ...(r && played ? { edit: `earned:${t.id}:${x.id}:${r.revenue - r.earned}` } : {}) },
         { v: cost, bg: COST, fmt: NUM, ...(r?.opexText ? { note: r.opexText } : {}) },
         { v: `=B${n}+C${n}-D${n}+SUM(F${n}:${last}${n})`, bg, bold: true, fmt: NUM, edge: true },
-        ...moved.map((m) => ({ v: m.v, note: m.note, bg, fmt: SIGNED, fg: m.v < 0 ? '#b91c1c' : undefined, edit: `move:${m.id}` })),
+        ...moved.map((m) => ({ v: m.v, note: m.note, bg, fmt: SIGNED, fg: m.v < 0 ? '#b91c1c' : undefined, ...(played ? { edit: `move:${m.id}` } : {}) })),
       ], width, { bg, fmt: SIGNED, ...(played ? { edit: `new:${t.id}:${x.id}` } : {}) }));
       prevRow.set(x.id, n);
     });
@@ -365,6 +367,7 @@ async function actionsSheet(db: Db, gameId: number): Promise<Grid> {
      where a.game_id = $1`,
     [gameId],
   );
+  const closed = new Set((await tacts(db, gameId)).filter((t) => t.closed_at).map((t) => t.number));
   const all = [...done.map((t) => ({ ...t, status: 'Принято', reason: '' })), ...refused.map((t) => ({ ...t, status: 'Отклонено' }))]
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   // Tact, time, amount, who and whom, what, the comment; status and reason last.
@@ -380,12 +383,13 @@ async function actionsSheet(db: Db, gameId: number): Promise<Grid> {
       head.map((v) => ({ v, bold: true, size: 11, bg: '#efefef' })),
       ...all.map((t): Spec[] => {
         const ok = t.status === 'Принято';
+        const editable = ok && !closed.has(t.tact); // transfers of a finished tact are frozen
         const bg = ok ? '#ffffff' : '#fdf2f2';
         return [
           { v: t.tact ?? '', bg }, { v: clock(t.created_at), bg },
-          { v: t.amount === null ? '' : Number(t.amount), fmt: NUM, bold: true, bg, ...(ok ? { edit: `amount:${t.id}` } : {}) },
+          { v: t.amount === null ? '' : Number(t.amount), fmt: NUM, bold: true, bg, ...(editable ? { edit: `amount:${t.id}` } : {}) },
           { v: t.from_title, align: 'LEFT', bg }, { v: t.to_title, align: 'LEFT', bg }, { v: KIND_LABEL[t.kind] ?? t.kind, bg },
-          { v: t.comment, align: 'LEFT', bg, ...(ok ? { edit: `comment:${t.id}` } : {}) },
+          { v: t.comment, align: 'LEFT', bg, ...(editable ? { edit: `comment:${t.id}` } : {}) },
           { v: t.initiator.trim() || 'Банк', align: 'LEFT', bg },
           { v: t.status, bold: true, bg: ok ? '#d9ead3' : '#f4cccc', fg: ok ? '#274e13' : '#990000' },
           { v: t.reason, align: 'LEFT', bg },
@@ -512,13 +516,13 @@ export async function readEdits(db: Db, api: JWT, sheetId: string) {
   const r = await api.request<{ valueRanges: { values?: unknown[][] }[] }>({
     url: `${API}/${sheetId}/values:batchGet?valueRenderOption=UNFORMATTED_VALUE&${query}`,
   });
-  const edits: { key: string; was: Cell; now: Cell }[] = [];
+  const edits: { title: string; pos: string; key: string; was: Cell; now: Cell }[] = [];
   states.forEach((x, i) => {
     const values = r.data.valueRanges[i]?.values ?? [];
     for (const [pos, [key, was]] of Object.entries(x.cells as State)) {
       const [row, col] = pos.split(':').map(Number);
       const now = norm(values[row]?.[col]);
-      if (now !== norm(was)) edits.push({ key, was: norm(was), now });
+      if (now !== norm(was)) edits.push({ title: x.title, pos, key, was: norm(was), now });
     }
   });
   return edits;
@@ -530,6 +534,10 @@ const GOOGLE = 'Изменено в Google-таблице';
 export async function applyEdit(db: Db, gameId: number, key: string, was: Cell, now: Cell) {
   const [kind, ...p] = key.split(':');
   const ids = p.map(Number);
+  // A finished tact is frozen: an edit there is ignored and the next write restores the cell.
+  const tactOfKey = ['earned', 'new', 'qty', 'out'].includes(kind) ? ids[0]
+    : (await db.query('select tact_id from transfer where id = $1', [ids[0]]))[0]?.tact_id;
+  if (tactOfKey && (await db.query('select closed_at from tact where id = $1', [tactOfKey]))[0]?.closed_at) return;
   const n = now === '' ? 0 : typeof now === 'number' ? Math.round(now) : NaN;
   if (Number.isNaN(n) && kind !== 'comment') return; // text where a number belongs: the next write restores it
   switch (kind) {
@@ -542,8 +550,8 @@ export async function applyEdit(db: Db, gameId: number, key: string, was: Cell, 
       const host = await hostAccountId(db, gameId);
       return transfer(db, {
         gameId, kind: n > 0 ? 'host_credit' : 'host_debit', fromAccountId: n > 0 ? host : ids[1], toAccountId: n > 0 ? ids[1] : host,
-        amount: Math.abs(n), comment: 'Вписано в Google-таблице', allowNegative: true, tactId: ids[0],
-      }, undefined, intoTact(ids[0]));
+        amount: Math.abs(n), comment: 'Вписано в Google-таблице', allowNegative: true,
+      });
     }
     case 'qty': { // "Мощности": quantity of an asset in that tact
       const delta = Math.max(0, n) - Number(was || 0);
@@ -559,8 +567,21 @@ export async function applyEdit(db: Db, gameId: number, key: string, was: Cell, 
   }
 }
 
-/** Reads every sheet of the game (the admin's and the copies) and applies what was changed there. */
-export async function pullEdits(db: Db, gameId: number) {
+const pulling = new Map<number, Promise<number>>();
+
+/**
+ * Reads every sheet of the game and applies what was changed there — once: one read runs at a time
+ * per game, and an applied cell is marked as seen at once, so a second read never applies it again.
+ */
+export function pullEdits(db: Db, gameId: number): Promise<number> {
+  const prev = pulling.get(gameId) ?? Promise.resolve(0);
+  const next = prev.catch(() => 0).then(() => pullOnce(db, gameId));
+  pulling.set(gameId, next);
+  next.finally(() => { if (pulling.get(gameId) === next) pulling.delete(gameId); }).catch(() => {});
+  return next;
+}
+
+async function pullOnce(db: Db, gameId: number) {
   if (!credentials()) return 0;
   const [g] = await db.query('select sheet_id from game where id = $1', [gameId]);
   const copies = await db.query('select sheet_id from staff_sheet where game_id = $1', [gameId]);
@@ -570,6 +591,12 @@ export async function pullEdits(db: Db, gameId: number) {
     let edits: Awaited<ReturnType<typeof readEdits>> = [];
     try { edits = await readEdits(db, api, sheetId); } catch (e: any) { console.error('sheets read', e?.response?.data?.error?.message ?? e); continue; }
     for (const e of edits) {
+      // Seen before applying: whatever happens, this value is not taken a second time.
+      await db.query(
+        `update sheet_state set cells = jsonb_set(cells, array[$3::text], jsonb_build_array($4::text, $5::jsonb))
+         where sheet_id = $1 and title = $2`,
+        [sheetId, e.title, e.pos, e.key, JSON.stringify(e.now)],
+      );
       try {
         await applyEdit(db, gameId, e.key, e.was, e.now);
         applied++;

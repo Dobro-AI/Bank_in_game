@@ -17,7 +17,7 @@ import * as sheets from './sheets.js';
 import * as telegram from './telegram.js';
 import * as hostBot from './telegram-host.js';
 import { transcribe, transcriptionEnabled } from './transcribe.js';
-import { deleteTransfer, editTransfer, hostAdjust, intoTact, payFixedPrice, playerTransfer, transfer, transferEvents } from './transfers.js';
+import { deleteTransfer, editTransfer, hostAdjust, payFixedPrice, playerTransfer, transfer, transferEvents } from './transfers.js';
 
 const STAFF_COOKIE = 'sid';
 const PLAYER_COOKIE = 'psid';
@@ -654,7 +654,7 @@ export function buildApp(
     const { staff } = await needGame(req, id, 'run');
     const b = req.body as any;
     const res = await hostAdjust(db, id, staff.id, {
-      accountId: Number(b.accountId), direction: b.direction, amount: b.amount, comment: b.comment, idempotencyKey: b.idempotencyKey, tactId: num(b.tactId),
+      accountId: Number(b.accountId), direction: b.direction, amount: b.amount, comment: b.comment, idempotencyKey: b.idempotencyKey,
     });
     changed(id);
     return res;
@@ -669,9 +669,9 @@ export function buildApp(
     if (!to) throw new AppError('Получатель не найден', 404);
     const res = await transfer(db, {
       gameId: id, kind: to.kind === 'host' ? 'to_host' : 'player', fromAccountId: Number(b.fromAccountId), toAccountId: Number(b.toAccountId),
-      amount: b.amount, comment: b.comment, initiatorStaffId: staff.id, tactId: num(b.tactId),
+      amount: b.amount, comment: b.comment, initiatorStaffId: staff.id,
       idempotencyKey: b.idempotencyKey ? `s${staff.id}:${String(b.idempotencyKey).slice(0, 100)}` : null,
-    }, undefined, intoTact(num(b.tactId)));
+    });
     changed(id);
     return res;
   });
