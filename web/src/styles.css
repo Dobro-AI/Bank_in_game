@@ -151,7 +151,26 @@ tfoot td { font-weight: 650; background: #fafafa; }
 }
 .bubble { max-width: 85%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
 .bubble.user { align-self: flex-end; background: var(--accent-soft); }
-.bubble.assistant { align-self: flex-start; background: #f3f4f6; }
+.bubble.assistant { align-self: flex-start; background: #f3f4f6; white-space: normal; }
+
+/* Markdown in the assistant's replies. */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md pre { margin: 0 0 8px; }
+.md ul, .md ol { padding-left: 20px; }
+.md li + li { margin-top: 2px; }
+.md .md-h { font-weight: 700; margin: 12px 0 4px; }
+.md .md-h1 { font-size: 18px; }
+.md .md-h2, .md .md-h3 { font-size: 16px; }
+.md code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; background: rgba(0, 0, 0, 0.06); padding: 1px 4px; border-radius: 4px; }
+.md pre { overflow-x: auto; background: rgba(0, 0, 0, 0.06); padding: 8px 12px; border-radius: 8px; }
+.md pre code { background: none; padding: 0; }
+.md-table-wrap { overflow-x: auto; margin: 4px 0 8px; background: #fff; border-radius: 8px; border: 1px solid var(--line); }
+.md-table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+.md-table th, .md-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.md-table th { font-size: 12px; font-weight: 600; color: var(--muted); background: #fafafa; }
+.md-table tr:last-child td { border-bottom: none; }
+.md-table .num { text-align: right; }
 .proposal { align-self: flex-start; width: min(420px, 100%); border-color: var(--accent); }
 .btn[aria-pressed='true'] { border-color: var(--danger); color: var(--danger); }
 

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api, useLoad } from '../api';
 import { CloseIcon, ImageAddIcon, MicIcon, SendIcon } from '../icons';
+import { Markdown } from '../Markdown';
 import { ErrorText, Money } from '../ui';
 import type { Ctx } from './GamePage';
 
@@ -240,7 +241,8 @@ export function Assistant({ ctx }: { ctx: Ctx }) {
         {timeline.map((item) => 'm' in item && item.m ? (
           <div key={item.key} className={`bubble ${item.m.role}`}>
             {item.m.hasImage && <div className="tiny muted">Фото</div>}
-            {item.m.text}
+            {/* The assistant writes Markdown (tables, lists, bold); the host's own text stays as typed. */}
+            {item.m.role === 'assistant' ? <Markdown text={item.m.text} /> : item.m.text}
           </div>
         ) : 'p' in item && item.p ? (
           <ProposalCard key={item.key} p={item.p} canRun={ctx.d.game.kind === 'branch'} onDecide={decide} />
