@@ -419,3 +419,16 @@ td.pick .dd-button { min-height: 36px; padding: 4px 10px; font-size: 14px; }
 .cap-table td.power small { display: block; font-size: 12px; font-weight: 400; }
 .cap-table td.expenses { color: #b91c1c; }
 .cap-table td.power { color: #047857; font-weight: 600; }
+
+/* "Мощности": a row per company, a group of columns per asset. */
+.capacities.grid th.group { text-align: center; background: #f9e2cf; border-left: 2px solid #fff; }
+.capacities.grid th.group.odd, .capacities.grid th.sub.odd { background: #fdf3e7; }
+.capacities.grid th.sub { font-size: 11px; background: #f9e2cf; }
+.capacities.grid th.sub.cost { color: #b91c1c; }
+.capacities.grid th.sub.power { color: #047857; }
+.capacities.grid th.total, .capacities.grid td.total { background: #fbe0d9; white-space: nowrap; }
+.capacities.grid td.cost { color: #b91c1c; }
+.capacities.grid td.power-sum { background: #eef7ea; color: #047857; font-weight: 600; white-space: nowrap; }
+.capacities.grid td.company { min-width: 150px; }
+.capacities.grid td.company .link-btn { display: block; padding: 0; min-height: 24px; font-size: 12px; }
+.capacities.grid td .cell-input { width: 56px; }

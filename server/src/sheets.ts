@@ -205,70 +205,104 @@ const companiesOf = async (db: Db, gameId: number) =>
     .sort((x, y) => kindOrder[x.kind] - kindOrder[y.kind] || x.title.localeCompare(y.title, 'ru'));
 
 /**
- * "Мощности": per tact, a row per company and asset — quantity × expense of one unit = expenses,
- * quantity × capacity of one unit = capacity. "Счета" takes each company's expenses from here.
+ * "Мощности": per tact a row per company and, across, a group of columns per asset — quantity,
+ * hours or trips served (when they cost or earn), expenses = quantity × expense of one unit
+ * (+ served × cost of one trip), capacity = quantity × capacity of one unit — and the company's
+ * total expenses, which "Счета" takes. Quantities and served of the current tact can be edited.
  */
 async function capacitySheet(db: Db, gameId: number) {
-  const types = await db.query('select * from asset_type where game_id = $1', [gameId]);
-  const typeBy = new Map(types.map((t) => [t.code, t]));
-  // Trips and hours served cost money in some games (trucks): then those columns are shown too.
-  const served = types.some((t) => t.cost_per_output);
-  const head = ['Компания', 'Актив', 'Количество', 'Расход на 1 шт.', 'Расходы', 'Мощность 1 шт.', 'Мощность', 'Ед.',
-    ...(served ? ['Обслужено', 'Расход на 1 ед.', 'Расходы на обслуживание', 'Всего расходов'] : [])];
-  const width = head.length;
-  const costCol = served ? 'L' : 'E';
-  const headColor = [undefined, undefined, '#f6b26b', COST, '#e06666', POWER_GREEN, '#93c47d', undefined, POWER, COST, COST_SUM, '#e06666'];
-  const cells: Spec[][] = [head.map((v, c) => (c === 0 ? { ...BLACK, v } : { v, bold: true, wrap: true, bg: headColor[c] ?? PEACH, fg: headColor[c] === '#e06666' ? '#ffffff' : undefined }))];
-  const ranges = new Map<string, [number, number]>();
-  const tall: Record<number, number> = { 0: 48 };
+  const types = await db.query('select * from asset_type where game_id = $1 order by sort, id', [gameId]);
   const played = await tacts(db, gameId);
-  let lastRows: { title: string; assets: string[] }[] = [];
-  // Each tact is its own block computed from that tact's data: a change in a later tact never alters an earlier one.
-  for (const t of played) {
-    const cap = await assets.capacityTable(db, gameId, t.id);
+  const tables = [];
+  for (const t of played) tables.push({ t, cap: await assets.capacityTable(db, gameId, t.id) });
+  // Only assets someone has (or had) get columns.
+  const used = new Set(tables.flatMap(({ cap }) => cap.rows.flatMap((r) => r.assets.filter((x) => x.end || x.output).map((x) => x.code))));
+  const shown = types.filter((ty) => used.has(ty.code));
+  type Col = { kind: 'qty' | 'out' | 'cost' | 'power'; ty: any };
+  const groups = shown.map((ty) => [
+    { kind: 'qty', ty },
+    ...(ty.cost_per_output || ty.revenue_per_output ? [{ kind: 'out', ty }] : []),
+    ...(ty.opex_per_unit || ty.cost_per_output ? [{ kind: 'cost', ty }] : []),
+    ...(ty.capacity_per_unit ? [{ kind: 'power', ty }] : []),
+  ] as Col[]);
+  const cols = groups.flat();
+  const width = 1 + cols.length + 1;
+  const totalCol = column(width);
+  const letter = (i: number) => column(2 + i); // column of cols[i]
+
+  // Two header rows: the asset over its group, then what each column is.
+  const top: Spec[] = [{ ...BLACK, v: 'Компания', wrap: true }];
+  const sub: Spec[] = [{ ...BLACK, v: '' }];
+  groups.forEach((g, gi) => g.forEach((c, k) => {
+    const bg = gi % 2 ? '#fdf3e7' : PEACH;
+    top.push({ v: k === 0 ? c.ty.title : '', bold: true, bg, align: 'LEFT', wrap: g.length === 1 });
+    const label = c.kind === 'qty' ? 'Кол-во'
+      : c.kind === 'out' ? `Обслужено, ${c.ty.capacity_unit || 'ед.'}`
+      : c.kind === 'cost' ? `Расходы (${[c.ty.opex_per_unit ? `${c.ty.opex_per_unit} за шт.` : '', c.ty.cost_per_output ? `${c.ty.cost_per_output} за ${c.ty.capacity_unit || 'ед.'}` : ''].filter(Boolean).join(' + ')})`
+      : `Мощность (${c.ty.capacity_per_unit} ${c.ty.capacity_unit} на шт.)`;
+    sub.push({ v: label, bold: true, wrap: true, size: 9, bg: c.kind === 'cost' ? COST : c.kind === 'power' ? '#b6d7a8' : c.kind === 'qty' ? '#f6b26b' : POWER });
+  }));
+  top.push({ v: 'Всего расходов', bold: true, bg: '#e06666', fg: '#ffffff', wrap: true });
+  sub.push({ v: 'спишется в конце такта', size: 9, bg: '#e06666', fg: '#ffffff', wrap: true });
+  const cells: Spec[][] = [top, sub];
+  const tall: Record<number, number> = { 0: 44, 1: 48 };
+  const ranges = new Map<string, [number, number]>();
+  let lastRows: string[] = [];
+
+  for (const { t, cap } of tables) {
     const open = !t.closed_at; // a finished tact is frozen: no edits
     tall[cells.length] = 32;
     cells.push(pad([{ ...BLACK, v: tactLabel(t), size: 12 }], width, { bg: PEACH }));
     const first = cells.length + 1;
-    const rows = [...cap.rows].sort((x, y) => kindOrder[x.kind] - kindOrder[y.kind] || x.title.localeCompare(y.title, 'ru'));
-    lastRows = [];
-    rows.filter((r) => r.assets.some((x) => x.end || x.output)).forEach((r, i) => {
-      const from = cells.length + 1;
+    const rows = [...cap.rows].sort((x, y) => kindOrder[x.kind] - kindOrder[y.kind] || x.title.localeCompare(y.title, 'ru'))
+      .filter((r) => r.assets.some((x) => x.end || x.output));
+    lastRows = rows.map((r) => r.title);
+    rows.forEach((r, i) => {
+      const n = cells.length + 1;
       const bg = i % 2 ? ALT : '#ffffff';
-      const list = r.assets.filter((y) => y.end || y.output);
-      lastRows.push({ title: r.title, assets: list.map((x) => x.title) });
-      for (const x of list) {
-        const ty = typeBy.get(x.code);
-        const n = cells.length + 1;
-        cells.push([
-          { v: r.title, bg, bold: n === from }, { v: x.title, bg, align: 'LEFT' },
-          { v: x.end, bg, bold: true, ...(open ? { edit: `qty:${t.id}:${r.accountId}:${x.code}` } : {}) },
-          { v: ty?.opex_per_unit ?? 0, bg: COST, fmt: NUM }, { v: `=C${n}*D${n}`, bg: COST_SUM, bold: true, fmt: NUM },
-          { v: ty?.capacity_per_unit ?? 0, bg: POWER_GREEN, fmt: NUM }, { v: `=C${n}*F${n}`, bg: '#b6d7a8', bold: true, fmt: NUM }, { v: x.capacityUnit, bg },
-          ...(served ? [{ v: x.output, bg: POWER, ...(open && x.capacityUnit ? { edit: `out:${t.id}:${r.accountId}:${x.code}` } : {}) }, { v: ty?.cost_per_output ?? 0, bg: COST, fmt: NUM },
-            { v: `=I${n}*J${n}`, bg: COST_SUM, fmt: NUM }, { v: `=E${n}+K${n}`, bg: '#e06666', fg: '#ffffff', bold: true, fmt: NUM }] : []),
-        ]);
-      }
-      ranges.set(`${t.id}:${r.accountId}`, [from, cells.length]);
+      const by = new Map(r.assets.map((x) => [x.code, x]));
+      const row: Spec[] = [{ v: r.title, bg, bold: true, align: 'LEFT' }];
+      const costCells: string[] = [];
+      cols.forEach((c, k) => {
+        const x = by.get(c.ty.code);
+        const qtyAt = letter(cols.findIndex((y) => y.ty === c.ty && y.kind === 'qty'));
+        const outIdx = cols.findIndex((y) => y.ty === c.ty && y.kind === 'out');
+        if (c.kind === 'qty') {
+          row.push({ v: x?.end ?? 0, bg, bold: true, ...(open ? { edit: `qty:${t.id}:${r.accountId}:${c.ty.code}` } : {}) });
+        } else if (c.kind === 'out') {
+          row.push({ v: x?.output ?? 0, bg: POWER, ...(open && c.ty.capacity_unit ? { edit: `out:${t.id}:${r.accountId}:${c.ty.code}` } : {}) });
+        } else if (c.kind === 'cost') {
+          const parts = [c.ty.opex_per_unit ? `${qtyAt}${n}*${c.ty.opex_per_unit}` : '', c.ty.cost_per_output && outIdx >= 0 ? `${letter(outIdx)}${n}*${c.ty.cost_per_output}` : ''].filter(Boolean);
+          row.push({ v: `=${parts.join('+') || 0}`, bg: COST, fmt: NUM });
+          costCells.push(`${letter(k)}${n}`);
+        } else {
+          row.push({ v: `=${qtyAt}${n}*${c.ty.capacity_per_unit}`, bg: '#d9ead3', fg: '#274e13', bold: true, fmt: NUM });
+        }
+      });
+      row.push({ v: costCells.length ? `=${costCells.join('+')}` : 0, bg: '#e06666', fg: '#ffffff', bold: true, fmt: NUM, ...(r.opexText ? { note: r.opexText } : {}) });
+      cells.push(row);
+      ranges.set(`${t.id}:${r.accountId}`, [n, n]);
     });
     const last = cells.length;
-    cells.push(pad([{ v: 'Итого расходов:', bg: TOTAL, align: 'RIGHT', bold: true }, { bg: TOTAL }, { bg: TOTAL }, { bg: TOTAL },
-      { v: last >= first ? `=SUM(E${first}:E${last})` : 0, bg: TOTAL, bold: true, fmt: NUM }], width, { bg: TOTAL }));
-    if (served) cells[cells.length - 1][11] = { v: last >= first ? `=SUM(L${first}:L${last})` : 0, bg: TOTAL, bold: true, fmt: NUM };
+    const sums: Spec[] = [{ v: 'Итого:', bg: TOTAL, align: 'RIGHT', bold: true }];
+    cols.forEach((c, k) => sums.push(c.kind === 'cost' || c.kind === 'power'
+      ? { v: last >= first ? `=SUM(${letter(k)}${first}:${letter(k)}${last})` : 0, bg: TOTAL, bold: true, fmt: NUM }
+      : { bg: TOTAL }));
+    sums.push({ v: last >= first ? `=SUM(${totalCol}${first}:${totalCol}${last})` : 0, bg: TOTAL, bold: true, fmt: NUM });
+    cells.push(sums);
     cells.push(pad([], width, { bare: true }));
   }
-  // Tacts still ahead: the same companies and assets, filled in when the tact comes.
+  // Tacts still ahead: the same companies, filled in when the tact comes.
   for (let number = played.length + 1; number <= PLANNED_TACTS && played.length; number++) {
     tall[cells.length] = 32;
     cells.push(pad([{ ...BLACK, v: tactLabel({ number, closed_at: null, future: true }), size: 12 }], width, { bg: PEACH }));
-    lastRows.forEach((r, i) => r.assets.forEach((a, k) => {
-      const bg = i % 2 ? ALT : '#ffffff';
-      cells.push(pad([{ v: r.title, bg, bold: k === 0 }, { v: a, bg, align: 'LEFT' }], width, { bg }));
-    }));
+    lastRows.forEach((title, i) => cells.push(pad([{ v: title, bg: i % 2 ? ALT : '#ffffff', bold: true, align: 'LEFT' }], width, { bg: i % 2 ? ALT : '#ffffff' })));
     cells.push(pad([], width, { bare: true }));
   }
-  const grid: Grid = { title: 'Мощности', cells, widths: [200, 230, 90, 90, 90, 90, 90, 90, 90, 90, 110, 100].slice(0, width), frozen: [1, 2], tall };
-  return { grid, ranges, costCol };
+  // An asset with a single column gets room for its name.
+  const alone = new Set(groups.filter((g) => g.length === 1).map((g) => g[0].ty.code));
+  const grid: Grid = { title: 'Мощности', cells, widths: [190, ...cols.map((c) => (c.kind !== 'qty' ? 92 : alone.has(c.ty.code) ? 100 : 64)), 100], frozen: [2, 1], tall };
+  return { grid, ranges, costCol: totalCol };
 }
 
 /**
@@ -323,7 +357,7 @@ async function accountsSheet(db: Db, gameId: number, title: string, cap: Awaited
       const prev = prevRow.get(x.id);
       const r = capBy.get(t.id)?.get(x.id);
       const range = cap.ranges.get(`${t.id}:${x.id}`);
-      const cost: Cell = range ? `=SUM('Мощности'!${cap.costCol}${range[0]}:${cap.costCol}${range[1]})` : r?.opex ?? '';
+      const cost: Cell = range ? `='Мощности'!${cap.costCol}${range[0]}` : r?.opex ?? '';
       const moved = cellsOf(t.id, x.id);
       // The current tact can be edited right in the sheet: income, a transfer's amount, a new number to the right.
       // A finished tact is frozen, so its cells take no edits.

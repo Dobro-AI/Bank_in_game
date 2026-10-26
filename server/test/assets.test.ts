@@ -96,15 +96,13 @@ describe('Google-таблица', () => {
     expect(sheets.map((s) => s.title)).toEqual(['Счета', 'Переводы', 'Мощности']);
     const [accounts, log, capacity] = sheets.map(values);
     expect(log[1]).toContain('Стартовый баланс');
-    // "Мощности": quantity × expense of one unit, quantity × capacity of one unit.
-    const c = capacity.findIndex((r) => r[0] === 'IVI' && r[1] === 'Сервер') + 1;
-    expect(capacity[c - 1].slice(0, 8)).toEqual(['IVI', 'Сервер', 2, 10, `=C${c}*D${c}`, 30, `=C${c}*F${c}`, 'ч']);
-    // "Счета": start capital in B, income in C, expenses taken from "Мощности", the balance in E.
+    // "Мощности": one row per company; per asset — quantity, served, expenses, capacity; then the total.
+    expect(capacity[0].slice(0, 6)).toEqual(['Компания', 'Сервер', '', '', '', 'Грузовик 1 год']);
+    const c = capacity.findIndex((r) => r[0] === 'IVI') + 1;
+    expect(capacity[c - 1]).toEqual(['IVI', 2, 0, `=B${c}*10`, `=B${c}*30`, 3, `=F${c}*1`, 1, `=H${c}*15`, `=D${c}`]);
+    // "Счета": start capital in B, income in C, expenses taken from the company's total in "Мощности", the balance in E.
     const n = accounts.findIndex((r) => r[0] === 'IVI') + 1;
-    // IVI's rows of the first tact (later blocks repeat the companies).
-    const ivi: number[] = [];
-    for (let i = capacity.findIndex((r) => r[0] === 'IVI'); capacity[i]?.[0] === 'IVI'; i++) ivi.push(i + 1);
-    expect(accounts[n - 1].slice(0, 5)).toEqual(['IVI', expect.any(Number), 0, `=SUM('Мощности'!E${ivi[0]}:E${ivi.at(-1)})`, expect.stringMatching(new RegExp(`^=B${n}\\+C${n}-D${n}\\+SUM\\(F${n}:`))]);
+    expect(accounts[n - 1].slice(0, 5)).toEqual(['IVI', expect.any(Number), 0, `='Мощности'!J${c}`, expect.stringMatching(new RegExp(`^=B${n}\\+C${n}-D${n}\\+SUM\\(F${n}:`))]);
   });
 
   it('понимает ссылку на таблицу', () => {

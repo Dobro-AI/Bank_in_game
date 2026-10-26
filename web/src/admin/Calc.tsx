@@ -1,8 +1,8 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, Fragment, useEffect, useState } from 'react';
 import { api, money, newKey, useLoad } from '../api';
 import { Select } from '../Select';
 import { Confirm, Empty, ErrorText, Field, Money as Amount } from '../ui';
-import { Ledger, OutputInput } from './Capacity';
+import { Ledger } from './Capacity';
 import type { Ctx } from './GamePage';
 
 const EARNED = '__earned';
@@ -125,9 +125,9 @@ export function Money({ ctx }: { ctx: Ctx }) {
 }
 
 /**
- * "Мощности": a row per company and asset, like the organisers' sheet — quantity × expense of one
- * unit = expenses, quantity × capacity of one unit = capacity. Quantities and served hours are edited
- * here; the company's expenses go to "Счета".
+ * "Мощности": a row per company and, across, a group of columns per asset — quantity (edited here),
+ * hours or trips served, expenses = quantity × expense of one unit (+ served × cost), capacity =
+ * quantity × capacity of one unit — and the company's total expenses, which go to "Счета".
  */
 export function Capacities({ ctx }: { ctx: Ctx }) {
   const { cap, picker } = useTact(ctx);
@@ -139,16 +139,25 @@ export function Capacities({ ctx }: { ctx: Ctx }) {
   const tact = cap.data.tact;
   const editable = !tact.closed_at && ctx.d.can.run;
   const types = cap.data.types;
-  const typeBy = new Map(types.map((t) => [t.code, t]));
-  const rows = companies(cap.data.rows);
-  const served = types.some((t) => t.capacity_unit);
+  const rows = companies(cap.data.rows).filter((r) => r.kind === 'legal' || r.assets.some((a) => a.end || a.output));
+  // Only assets someone has get columns; every asset gets quantity, the rest when it applies.
+  const used = new Set(rows.flatMap((r) => r.assets.filter((a) => a.end || a.output).map((a) => a.code)));
+  const shown = types.filter((t) => used.has(t.code)).map((t) => ({
+    t, out: !!(t.cost_per_output || t.revenue_per_output), cost: !!(t.opex_per_unit || t.cost_per_output), power: !!t.capacity_per_unit,
+  }));
+  const span = (g: (typeof shown)[number]) => 1 + Number(g.out) + Number(g.cost) + Number(g.power);
 
   async function change(accountId: number, code: string, from: number, to: number) {
     if (to === from) return;
     try {
-      await api(`/api/admin/games/${ctx.id}/ledger`, {
-        body: { accountId, code, delta: to - from, comment: 'Изменено в мощностях' },
-      });
+      await api(`/api/admin/games/${ctx.id}/ledger`, { body: { accountId, code, delta: to - from, comment: 'Изменено в мощностях' } });
+      setError(undefined);
+      cap.reload();
+    } catch (e: any) { setError(e.message); }
+  }
+  async function serve(accountId: number, code: string, amount: number) {
+    try {
+      await api(`/api/admin/games/${ctx.id}/capacity/output`, { method: 'PUT', body: { tactId: tact.id, accountId, code, amount } });
       setError(undefined);
       cap.reload();
     } catch (e: any) { setError(e.message); }
@@ -164,68 +173,70 @@ export function Capacities({ ctx }: { ctx: Ctx }) {
       </div>
       <ErrorText error={error} />
       <div className="table-wrap">
-        <table className="calc capacities">
+        <table className="calc capacities grid">
           <thead>
             <tr>
-              <th>Компания</th><th>Актив</th><th className="num">Количество</th><th className="num">Расход на 1 шт.</th><th className="num">Расходы</th>
-              <th className="num">Мощность 1 шт.</th><th className="num">Мощность</th>{served && <th>Обслужено</th>}<th className="num">Расходы компании</th>
+              <th rowSpan={2}>Компания</th>
+              {shown.map((g, i) => <th key={g.t.code} colSpan={span(g)} className={`group${i % 2 ? ' odd' : ''}`}>{g.t.title}</th>)}
+              <th rowSpan={2} className="num total">Всего расходов</th>
+            </tr>
+            <tr>
+              {shown.map((g, i) => (
+                <Fragment key={g.t.code}>
+                  <th className={`num sub${i % 2 ? ' odd' : ''}`}>Кол-во</th>
+                  {g.out && <th className={`num sub${i % 2 ? ' odd' : ''}`}>Обслужено</th>}
+                  {g.cost && <th className={`num sub cost${i % 2 ? ' odd' : ''}`} title={`${g.t.opex_per_unit || 0} за шт.${g.t.cost_per_output ? ` + ${g.t.cost_per_output} за ${g.t.capacity_unit}` : ''}`}>Расходы</th>}
+                  {g.power && <th className={`num sub power${i % 2 ? ' odd' : ''}`} title={`${g.t.capacity_per_unit} ${g.t.capacity_unit} на шт.`}>Мощность</th>}
+                </Fragment>
+              ))}
             </tr>
           </thead>
-          {rows.map((r, ri) => {
-            const list = r.assets.filter((a) => a.end || a.output);
-            const span = Math.max(1, list.length);
-            const missing = types.filter((t) => !list.some((a) => a.code === t.code));
-            const company = (
-              <td rowSpan={span}>
-                <strong>{r.title}</strong>
-                <div className="tiny muted">{r.owner}</div>
-                {editable && missing.length > 0 && (
-                  <div style={{ marginTop: 8, minWidth: 160 }}>
-                    <Select value="" placeholder="+ актив" ariaLabel={`Добавить актив, ${r.title}`} onChange={(code) => code && change(r.accountId, code, 0, 1)}
-                      options={missing.map((t) => ({ value: t.code, label: t.title }))} />
-                  </div>
-                )}
-                <button className="btn small" style={{ marginTop: 8 }} onClick={() => setJournal(journal === r.accountId ? undefined : r.accountId)}>
-                  {journal === r.accountId ? 'Все компании' : 'Журнал'}
-                </button>
-              </td>
-            );
-            const totalCell = (
-              <td rowSpan={span} className="num">
-                {r.opex ? <strong><Amount value={-r.opex} signed /></strong> : '—'}
-                {r.opexText && <div className="tiny muted formula">{r.opexText}</div>}
-              </td>
-            );
-            return (
-              <tbody key={r.accountId} className={ri % 2 ? 'alt' : undefined}>
-                {list.length === 0 && (
-                  <tr>{company}<td colSpan={served ? 7 : 6} className="muted small">Активов нет</td>{totalCell}</tr>
-                )}
-                {list.map((a, i) => {
-                  const t = typeBy.get(a.code);
-                  return (
-                    <tr key={a.code}>
-                      {i === 0 && company}
-                      <td>{a.title}</td>
-                      <td className="num">{editable ? <Qty value={a.end} label={`${r.title}, ${a.title}`} onSave={(n) => change(r.accountId, a.code, a.end, n)} /> : <strong>{a.end}</strong>}</td>
-                      <td className="num cost">{money(t?.opex_per_unit ?? 0)}</td>
-                      <td className="num cost-sum">{money(a.end * (t?.opex_per_unit ?? 0))}</td>
-                      <td className="num power">{t?.capacity_per_unit ? `${money(t.capacity_per_unit)} ${a.capacityUnit}` : '—'}</td>
-                      <td className="num power-sum">{a.capacityUnit ? `${money(a.capacity)} ${a.capacityUnit}` : '—'}</td>
-                      {served && (
-                        <td>{a.capacityUnit ? <OutputInput ctx={ctx} tactId={tact.id} accountId={r.accountId} cell={a} editable={editable} onSaved={cap.reload} /> : null}</td>
-                      )}
-                      {i === 0 && totalCell}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            );
-          })}
+          <tbody>
+            {rows.map((r) => {
+              const by = new Map(r.assets.map((a) => [a.code, a]));
+              return (
+                <tr key={r.accountId}>
+                  <td className="company">
+                    <strong>{r.title}</strong>
+                    {/* An asset nobody has yet is added in the journal below. */}
+                    <button className="link-btn" onClick={() => setJournal(journal === r.accountId ? undefined : r.accountId)}>
+                      {journal === r.accountId ? 'Все компании' : 'Журнал'}
+                    </button>
+                  </td>
+                  {shown.map((g) => {
+                    const a = by.get(g.t.code);
+                    const qty = a?.end ?? 0;
+                    const out = a?.output ?? 0;
+                    return (
+                      <Fragment key={g.t.code}>
+                        <td className="num">{editable ? <Qty value={qty} label={`${r.title}, ${g.t.title}`} onSave={(n) => change(r.accountId, g.t.code, qty, n)} /> : <strong>{qty}</strong>}</td>
+                        {g.out && (
+                          <td className="num">
+                            {editable && qty ? <Qty value={out} label={`Обслужено, ${r.title}, ${g.t.title}`} onSave={(n) => n !== out && serve(r.accountId, g.t.code, n)} /> : out || '—'}
+                          </td>
+                        )}
+                        {g.cost && <td className="num cost">{(() => { const c = qty * (g.t.opex_per_unit || 0) + out * (g.t.cost_per_output || 0); return c ? money(c) : '—'; })()}</td>}
+                        {g.power && <td className="num power-sum">{qty ? `${money(qty * g.t.capacity_per_unit)} ${g.t.capacity_unit}` : '—'}</td>}
+                      </Fragment>
+                    );
+                  })}
+                  <td className="num total" title={r.opexText}><strong>{r.opex ? <Amount value={-r.opex} signed /> : '0'}</strong></td>
+                </tr>
+              );
+            })}
+          </tbody>
           <tfoot>
             <tr>
-              <td colSpan={served ? 8 : 7}>Итого расходов</td>
-              <td className="num"><Amount value={-rows.reduce((s, r) => s + r.opex, 0)} signed /></td>
+              <td>Итого</td>
+              {shown.map((g) => (
+                <Fragment key={g.t.code}>
+                  <td></td>
+                  {g.out && <td></td>}
+                  {g.cost && <td className="num">{money(rows.reduce((s, r) => { const a = r.assets.find((x) => x.code === g.t.code); return s + (a ? a.end * (g.t.opex_per_unit || 0) + a.output * (g.t.cost_per_output || 0) : 0); }, 0))}</td>}
+                  {g.power && <td className="num">{money(rows.reduce((s, r) => s + (r.assets.find((x) => x.code === g.t.code)?.end ?? 0) * g.t.capacity_per_unit, 0))} {g.t.capacity_unit}</td>}
+                </Fragment>
+              ))}
+              <td className="num total"><Amount value={-rows.reduce((s, r) => s + r.opex, 0)} signed /></td>
             </tr>
           </tfoot>
         </table>
