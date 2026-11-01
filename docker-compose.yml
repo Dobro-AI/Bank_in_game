@@ -51,8 +51,11 @@ services:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${CADDY_SITES_DIR:-/opt/caddy-sites}:/etc/caddy/sites:ro
       - caddy_data:/data
       - caddy_config:/config
+    # edge — общая сеть с другими проектами на сервере, которые Caddy выпускает в интернет
+    networks: [default, edge]
 
   autoheal:
     image: willfarrell/autoheal:1.2.0
@@ -61,6 +64,10 @@ services:
       AUTOHEAL_CONTAINER_LABEL: autoheal
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  edge:
+    name: edge
 
 volumes:
   pgdata:
